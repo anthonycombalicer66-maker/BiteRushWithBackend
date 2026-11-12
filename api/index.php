@@ -8,7 +8,7 @@ date_default_timezone_set('UTC');
 $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 $requestedAction = (string)($_GET['action'] ?? '');
 $requestMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
-$staffActions = ['order-status', 'product', 'product-undo', 'audit'];
+$staffActions = ['order-status', 'product', 'product-undo', 'product-image-upload', 'audit'];
 $isStaffRequest = str_starts_with($requestedAction, 'staff-')
     || str_starts_with($requestedAction, 'admin-')
     || in_array($requestedAction, $staffActions, true)
@@ -30,6 +30,9 @@ function respond(int $status, array $data): never
 
 function request_data(): array
 {
+    if (str_starts_with((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'multipart/form-data')) {
+        return $_POST;
+    }
     try {
         $data = json_decode(file_get_contents('php://input'), true, 512, JSON_THROW_ON_ERROR);
     } catch (JsonException) {
@@ -158,11 +161,11 @@ function clean_image(mixed $value, string $label = 'Image'): string
     if (str_starts_with($value, 'data:')) {
         if (!preg_match('/\Adata:image\/(?:png|jpe?g|webp|gif);base64,([A-Za-z0-9+\/=]+)\z/i', $value, $match)
             || strlen($match[1]) > 1049000) {
-            respond(400, ['error' => "$label must be a supported image smaller than 750 KB."]);
+            respond(400, ['error' => "$label must be a supported image of 750 KB or less."]);
         }
         $decodedImage = base64_decode($match[1], true);
         if ($decodedImage === false || strlen($decodedImage) > 768000) {
-            respond(400, ['error' => "$label must be a supported image smaller than 750 KB."]);
+            respond(400, ['error' => "$label must be a supported image of 750 KB or less."]);
         }
         return $value;
     }
@@ -213,6 +216,7 @@ function validate_product(array $product): array
     $metadataFields = [
         'prepTime', 'barcode', 'cost', 'lowStockThreshold', 'lifecycle', 'featured',
         'allergens', 'tags', 'variants', 'addons', 'notes', 'scheduleStart', 'scheduleEnd',
+        'menu', 'time', 'calories', 'link',
     ];
     $metadata = array_intersect_key($metadata, array_fill_keys($metadataFields, true));
     if (isset($metadata['featured']) && !is_bool($metadata['featured'])) {
@@ -248,6 +252,10 @@ function validate_product(array $product): array
         'notes' => 300,
         'scheduleStart' => 32,
         'scheduleEnd' => 32,
+        'menu' => 50,
+        'time' => 50,
+        'calories' => 50,
+        'link' => 1000,
     ] as $field => $limit) {
         if (!array_key_exists($field, $metadata)) {
             continue;
@@ -256,6 +264,17 @@ function validate_product(array $product): array
         if ($field === 'lifecycle' && $metadata[$field] !== ''
             && !in_array($metadata[$field], ['active', 'draft', 'archived', 'discontinued'], true)) {
             respond(400, ['error' => 'Lifecycle state is invalid.']);
+        }
+    }
+    if (!empty($metadata['menu']) && !in_array($metadata['menu'], [
+        'Breakfast', 'Lunch', 'Dinner', 'Burger and Fries',
+    ], true)) {
+        respond(400, ['error' => 'Menu section must be Breakfast, Lunch, Dinner, or Burger and Fries.']);
+    }
+    if (!empty($metadata['link'])) {
+        $linkScheme = parse_url($metadata['link'], PHP_URL_SCHEME);
+        if ($linkScheme !== null && !in_array(strtolower($linkScheme), ['http', 'https'], true)) {
+            respond(400, ['error' => 'Product link must be a relative path, HTTP, or HTTPS URL.']);
         }
     }
     foreach (['scheduleStart', 'scheduleEnd'] as $field) {
@@ -1400,16 +1419,65 @@ try {
         respond(200, ['message' => 'Order status updated.']);
     }
 
+    if ($action === 'product-image-upload' && $method === 'POST') {
+        require_staff(['admin']);
+        $file = $_FILES['image'] ?? null;
+        if (!is_array($file)) {
+            respond(400, ['error' => 'Choose an image to upload.']);
+        }
+        $uploadError = $file['error'] ?? UPLOAD_ERR_NO_FILE;
+        if ($uploadError !== UPLOAD_ERR_OK) {
+            if (in_array($uploadError, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+                respond(400, ['error' => 'Image uploads must be 750 KB or less.']);
+            }
+            if ($uploadError === UPLOAD_ERR_NO_FILE) {
+                respond(400, ['error' => 'Choose an image to upload.']);
+            }
+            respond(400, ['error' => 'The image upload failed. Try again.']);
+        }
+        if (!is_uploaded_file($file['tmp_name']) || (int)$file['size'] < 1 || (int)$file['size'] > 768000) {
+            respond(400, ['error' => 'Image uploads must be 750 KB or less.']);
+        }
+        $fileInfo = new finfo(FILEINFO_MIME_TYPE);
+        $mimeType = $fileInfo->file($file['tmp_name']);
+        $imageTypes = [
+            'image/jpeg' => '.jpg',
+            'image/png' => '.png',
+            'image/webp' => '.webp',
+            'image/gif' => '.gif',
+        ];
+        if (!isset($imageTypes[$mimeType]) || @getimagesize($file['tmp_name']) === false) {
+            respond(400, ['error' => 'Upload a valid JPEG, PNG, WebP, or GIF image.']);
+        }
+        $uploadDirectory = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'products';
+        if (!is_dir($uploadDirectory) && !mkdir($uploadDirectory, 0755, true) && !is_dir($uploadDirectory)) {
+            respond(500, ['error' => 'The product image upload folder could not be created.']);
+        }
+        $filename = bin2hex(random_bytes(16)) . $imageTypes[$mimeType];
+        if (!move_uploaded_file($file['tmp_name'], $uploadDirectory . DIRECTORY_SEPARATOR . $filename)) {
+            respond(500, ['error' => 'The product image could not be saved. Check folder permissions.']);
+        }
+        respond(201, ['image' => '../uploads/products/' . $filename]);
+    }
+
     if (($action === 'products' || $action === 'admin-products') && $method === 'GET') {
         if ($action === 'admin-products') {
             require_staff(['admin']);
         }
+        $deletedProducts = [];
         $rows = $pdo->query(
             'SELECT id, title, source_key, sku, category, description, image, price, stock, available, deleted, metadata, updated_at
              FROM products ORDER BY title'
         )->fetchAll();
         $products = array_map('product_fields', $rows);
         if ($action === 'products') {
+            $deletedProducts = array_values(array_map(
+                static fn(array $product): array => [
+                    'title' => $product['title'],
+                    'category' => $product['category'],
+                ],
+                array_filter($products, static fn(array $product): bool => $product['deleted'])
+            ));
             $products = array_values(array_filter($products, static fn(array $product): bool =>
                 !$product['deleted']
             ));
@@ -1429,11 +1497,12 @@ try {
                     'metadata' => (object)array_intersect_key($metadata, array_fill_keys([
                         'featured', 'prepTime', 'allergens', 'tags', 'lifecycle',
                         'scheduleStart', 'scheduleEnd', 'variants', 'addons',
+                        'menu', 'time', 'calories', 'link',
                     ], true)),
                 ];
             }, $products);
         }
-        respond(200, ['products' => $products]);
+        respond(200, ['products' => $products, 'deletedProducts' => $deletedProducts]);
     }
 
     if ($action === 'products' && $method === 'PUT') {

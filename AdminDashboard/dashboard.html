@@ -152,18 +152,35 @@
                     <input id="newProductName" name="title" type="text" maxlength="60" placeholder="Dish name" required>
                     <label for="newProductCategory" class="visually-hidden">Category</label>
                     <input id="newProductCategory" name="category" type="text" maxlength="50" placeholder="Category" required>
+                    <label for="newProductMenu" class="visually-hidden">Menu section</label>
+                    <select id="newProductMenu" name="menu" required>
+                        <option value="Breakfast">Breakfast</option>
+                        <option value="Lunch">Lunch</option>
+                        <option value="Dinner">Dinner</option>
+                        <option value="Burger and Fries">Burger and Fries</option>
+                    </select>
                     <label for="newProductPrice" class="visually-hidden">New dish price in pesos</label>
                     <input id="newProductPrice" name="price" type="number" min="0.01" step="0.01" placeholder="Price (₱)" required>
-                    <label for="newProductDescription" class="visually-hidden">Dish description</label>
-                    <input id="newProductDescription" name="description" type="text" maxlength="180" placeholder="Short description (optional)">
+                    <label for="newProductDescription">Dish description</label>
+                    <textarea id="newProductDescription" name="description" maxlength="500" placeholder="Describe the dish" required></textarea>
                     <label for="newProductImage" class="visually-hidden">Dish image address</label>
                     <input id="newProductImage" name="image" type="text" maxlength="300" placeholder="Image URL (optional)">
+                    <label for="newProductImageUpload">Upload image (JPEG, PNG, WebP, or GIF; 750 KB or less)</label>
+                    <input id="newProductImageUpload" name="imageUpload" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
                     <label for="newProductStock" class="visually-hidden">Stock quantity</label>
                     <input id="newProductStock" name="stock" type="number" min="0" step="1" placeholder="Stock quantity">
                     <label for="newProductPrepTime" class="visually-hidden">Preparation time</label>
                     <input id="newProductPrepTime" name="prepTime" type="number" min="0" step="1" placeholder="Prep time (minutes)">
+                    <label for="newProductTime" class="visually-hidden">Card preparation time label</label>
+                    <input id="newProductTime" name="time" type="text" maxlength="50" placeholder="Card time label (e.g. 15–25 minutes)">
+                    <label for="newProductCalories" class="visually-hidden">Calories</label>
+                    <input id="newProductCalories" name="calories" type="text" maxlength="50" placeholder="Calories (optional)">
+                    <label for="newProductTags" class="visually-hidden">Dietary and filter tags</label>
+                    <input id="newProductTags" name="tags" type="text" maxlength="180" placeholder="Tags (e.g. spicy, vegan)">
                     <label for="newProductSku" class="visually-hidden">SKU</label>
                     <input id="newProductSku" name="sku" type="text" maxlength="40" placeholder="SKU (optional)">
+                    <label><input id="newProductAvailable" type="checkbox" checked> Available</label>
+                    <label><input id="newProductFeatured" type="checkbox" checked> Show on home page</label>
                     <button class="admin-primary-button" type="submit">Add dish</button>
                 </form>
                 <div class="menu-undo-row">
@@ -326,9 +343,19 @@
                     <input id="editProductKey" type="hidden">
                     <label>Name <input id="editProductName" maxlength="60" required></label>
                     <label>Category <input id="editProductCategory" maxlength="50" required></label>
+                    <label>Menu section
+                        <select id="editProductMenu" required>
+                            <option value="Breakfast">Breakfast</option>
+                            <option value="Lunch">Lunch</option>
+                            <option value="Dinner">Dinner</option>
+                            <option value="Burger and Fries">Burger and Fries</option>
+                        </select>
+                    </label>
                     <label>Price (₱) <input id="editProductPrice" type="number" min="0.01" step="0.01" required></label>
                     <label>Stock (blank = unlimited) <input id="editProductStock" type="number" min="0" step="1"></label>
                     <label>Preparation time (minutes) <input id="editProductPrepTime" type="number" min="0" step="1"></label>
+                    <label>Card time label <input id="editProductTime" maxlength="50" placeholder="e.g. 15–25 minutes"></label>
+                    <label>Calories <input id="editProductCalories" maxlength="50"></label>
                     <label>SKU <input id="editProductSku" maxlength="40"></label>
                     <label>Barcode / GTIN <input id="editProductBarcode" maxlength="60"></label>
                     <label>Cost price (₱) <input id="editProductCost" type="number" min="0" step="0.01"></label>
@@ -341,7 +368,7 @@
                             <option value="discontinued">Discontinued</option>
                         </select>
                     </label>
-                    <label>Description <textarea id="editProductDescription" maxlength="180"></textarea></label>
+                    <label>Description <textarea id="editProductDescription" maxlength="500"></textarea></label>
                     <label>Allergens <input id="editProductAllergens" maxlength="180" placeholder="e.g. Milk, peanuts"></label>
                     <label>Dietary tags <input id="editProductTags" maxlength="180" placeholder="e.g. Halal, Vegan"></label>
                     <label>Variants (one per line) <textarea id="editProductVariants" maxlength="600" placeholder="Small | +0&#10;Large | +50"></textarea></label>
@@ -350,8 +377,9 @@
                     <label>Scheduled from <input id="editProductScheduleStart" type="datetime-local"></label>
                     <label>Scheduled until <input id="editProductScheduleEnd" type="datetime-local"></label>
                     <label>Image URL <input id="editProductImage" maxlength="300"></label>
-                    <label>Upload image <input id="editProductImageUpload" type="file" accept="image/*"></label>
+                    <label>Upload image                     <input id="editProductImageUpload" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label>
                     <label class="availability-control"><input id="editProductAvailable" type="checkbox"> Available</label>
+                    <label class="availability-control"><input id="editProductFeatured" type="checkbox"> Show on home page</label>
                 </div>
                 <aside class="product-preview">
                     <strong>Card preview</strong>

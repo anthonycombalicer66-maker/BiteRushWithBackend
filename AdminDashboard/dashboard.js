@@ -58,6 +58,30 @@
     const getAuditEntries = () => auditEntries;
     const money = value => `₱${(Number(value) || 0).toFixed(2)}`;
     const normalizeTitle = title => String(title || '').trim().toLocaleLowerCase();
+    const uploadProductImage = async file => {
+        const formData = new FormData();
+        formData.append('image', file);
+        const response = await fetch(new URL('../api/index.php?action=product-image-upload', window.location.href), {
+            method: 'POST',
+            credentials: 'same-origin',
+            body: formData
+        });
+        const result = await response.json();
+        if (!response.ok || typeof result.image !== 'string') {
+            throw new Error(result.error || 'The product image upload failed.');
+        }
+        return result.image;
+    };
+    const normalizeProductImage = image => {
+        if (!image || /^(?:https?:|data:)/i.test(image)) return image || '';
+        const searchBase = new URL('../SearchResults/', window.location.href);
+        const resolved = new URL(image, searchBase);
+        if (resolved.origin !== window.location.origin || !resolved.pathname.startsWith(`${window.location.pathname.split('/AdminDashboard/')[0]}/`)) {
+            return resolved.href;
+        }
+        const projectPath = window.location.pathname.split('/AdminDashboard/')[0];
+        return `../${resolved.pathname.slice(projectPath.length + 1)}`;
+    };
     const getOrders = () => {
         const stored = readJSON(ordersKey, []);
         if (!Array.isArray(stored)) {
@@ -1076,6 +1100,10 @@
                 lifecycle: override.lifecycle ?? product.lifecycle ?? product.metadata?.lifecycle,
                 allergens: override.allergens ?? product.allergens ?? product.metadata?.allergens,
                 tags: override.tags ?? product.tags ?? product.metadata?.tags,
+                menu: override.menu ?? product.menu ?? product.metadata?.menu,
+                time: override.time ?? product.time ?? product.metadata?.time,
+                calories: override.calories ?? product.calories ?? product.metadata?.calories,
+                link: override.link ?? product.link ?? product.metadata?.link,
                 variants: override.variants ?? product.variants ?? product.metadata?.variants,
                 addons: override.addons ?? product.addons ?? product.metadata?.addons,
                 notes: override.notes ?? product.notes ?? product.metadata?.notes,
@@ -1093,7 +1121,7 @@
                 sku: override.sku ?? product.sku ?? '',
                 category: override.category || product.category || 'Menu',
                 description: override.description ?? product.description ?? '',
-                image: image ? new URL(image, new URL('../SearchResults/', window.location.href)).href : '',
+                image: normalizeProductImage(image),
                 price: Number(override.price ?? product.price),
                 stock: stock === undefined || stock === '' ? null : stock,
                 available: !deleted && override.available !== false,
@@ -1892,9 +1920,12 @@
     const editProductInputs = [
         document.getElementById('editProductName'),
         document.getElementById('editProductCategory'),
+        document.getElementById('editProductMenu'),
         document.getElementById('editProductPrice'),
         document.getElementById('editProductStock'),
         document.getElementById('editProductPrepTime'),
+        document.getElementById('editProductTime'),
+        document.getElementById('editProductCalories'),
         document.getElementById('editProductSku'),
         document.getElementById('editProductDescription'),
         document.getElementById('editProductImage'),
@@ -1909,7 +1940,8 @@
         document.getElementById('editProductNotes'),
         document.getElementById('editProductScheduleStart'),
         document.getElementById('editProductScheduleEnd'),
-        document.getElementById('editProductAvailable')
+        document.getElementById('editProductAvailable'),
+        document.getElementById('editProductFeatured')
     ];
 
     const overrideSkuConflict = (sku, exceptIndex = -1) => {
@@ -1931,7 +1963,7 @@
         const price = Number(document.getElementById('editProductPrice').value);
         const message = document.getElementById('editProductMessage');
         document.getElementById('editProductPreviewPrice').textContent =
-            Number.isFinite(price) ? money(price) : '₱0.00';
+            Number.isFinite(price) ? `₱ ${Math.round(price).toLocaleString('en-PH')}` : '₱ 0';
         document.getElementById('editProductPreviewImage').src =
             document.getElementById('editProductImage').value || new URL('../BiteRushHomePage/HomePagePics/burger.png', window.location.href).href;
     };
@@ -1943,9 +1975,12 @@
         document.getElementById('editProductName').value = override.title || product.title;
         document.getElementById('editProductName').readOnly = !custom;
         document.getElementById('editProductCategory').value = override.category || product.category || 'Menu';
+        document.getElementById('editProductMenu').value = override.menu || product.menu || product.metadata?.menu || 'Breakfast';
         document.getElementById('editProductPrice').value = String(Number(override.price ?? product.price) || '');
         document.getElementById('editProductStock').value = override.stock ?? product.stock ?? '';
         document.getElementById('editProductPrepTime').value = String(override.prepTime ?? product.prepTime ?? 0);
+        document.getElementById('editProductTime').value = override.time || product.time || product.metadata?.time || '';
+        document.getElementById('editProductCalories').value = override.calories || product.calories || product.metadata?.calories || '';
         document.getElementById('editProductSku').value = override.sku || product.sku || '';
         document.getElementById('editProductDescription').value = override.description ?? product.description ?? '';
         document.getElementById('editProductImage').value = override.image || product.image || '';
@@ -1965,6 +2000,8 @@
         document.getElementById('editProductScheduleStart').value = override.scheduleStart || product.scheduleStart || '';
         document.getElementById('editProductScheduleEnd').value = override.scheduleEnd || product.scheduleEnd || '';
         document.getElementById('editProductAvailable').checked = override.available !== false && override.deleted !== true;
+        document.getElementById('editProductFeatured').checked = override.featured === true
+            || product.featured === true || product.metadata?.featured === true;
         document.getElementById('editProductMessage').hidden = true;
         productEditorDirty = false;
         const savedDraft = readJSON(productDraftKey, null);
@@ -2000,22 +2037,28 @@
             updateProductPreview();
         });
     });
-    document.getElementById('editProductImageUpload').addEventListener('change', event => {
+    document.getElementById('editProductImageUpload').addEventListener('change', async event => {
         const file = event.target.files?.[0];
         if (!file) return;
-        if (file.size > 750 * 1024) {
-            document.getElementById('editProductMessage').textContent = 'Choose an image smaller than 750 KB.';
-            document.getElementById('editProductMessage').hidden = false;
+        const message = document.getElementById('editProductMessage');
+        if (file.size > 768000 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+            message.textContent = 'Choose a JPEG, PNG, WebP, or GIF image that is 750 KB or less.';
+            message.hidden = false;
             event.target.value = '';
             return;
         }
-        const reader = new FileReader();
-        reader.onload = () => {
-            document.getElementById('editProductImage').value = String(reader.result);
+        try {
+            document.getElementById('editProductImage').value = await uploadProductImage(file);
             productEditorDirty = true;
             updateProductPreview();
-        };
-        reader.readAsDataURL(file);
+            message.textContent = 'Image uploaded. Save the product to apply it.';
+            message.hidden = false;
+        } catch (error) {
+            message.textContent = error.message;
+            message.hidden = false;
+        } finally {
+            event.target.value = '';
+        }
     });
     document.getElementById('productEditDialog').addEventListener('close', () => {
         if (productEditorDirty && !window.confirm('Discard unsaved product changes?')) {
@@ -2034,6 +2077,10 @@
         const key = document.getElementById('editProductKey').value;
         const name = document.getElementById('editProductName').value.trim();
         const category = document.getElementById('editProductCategory').value.trim();
+        const menu = document.getElementById('editProductMenu').value;
+        const time = document.getElementById('editProductTime').value.trim();
+        const calories = document.getElementById('editProductCalories').value.trim();
+        const featured = document.getElementById('editProductFeatured').checked;
         const price = Number(document.getElementById('editProductPrice').value);
         const costValue = document.getElementById('editProductCost').value.trim();
         const cost = costValue ? Math.max(0, Number(costValue) || 0) : null;
@@ -2093,6 +2140,10 @@
                 ...customProducts[customIndex],
                 title: name,
                 category,
+                menu,
+                time,
+                calories,
+                featured,
                 description: document.getElementById('editProductDescription').value.trim(),
                 price,
                 stock,
@@ -2120,6 +2171,10 @@
                 ...(overrides[key] || {}),
                 title: name,
                 category,
+                menu,
+                time,
+                calories,
+                featured,
                 description: document.getElementById('editProductDescription').value.trim(),
                 price,
                 stock,
@@ -2356,23 +2411,33 @@
         printWindow.print();
     });
 
-    document.getElementById('addProductForm').addEventListener('submit', event => {
+    document.getElementById('addProductForm').addEventListener('submit', async event => {
         event.preventDefault();
         const nameInput = document.getElementById('newProductName');
         const categoryInput = document.getElementById('newProductCategory');
+        const menuInput = document.getElementById('newProductMenu');
         const priceInput = document.getElementById('newProductPrice');
         const descriptionInput = document.getElementById('newProductDescription');
         const imageInput = document.getElementById('newProductImage');
+        const imageUploadInput = document.getElementById('newProductImageUpload');
         const stockInput = document.getElementById('newProductStock');
         const prepTimeInput = document.getElementById('newProductPrepTime');
+        const timeInput = document.getElementById('newProductTime');
+        const caloriesInput = document.getElementById('newProductCalories');
+        const tagsInput = document.getElementById('newProductTags');
         const skuInput = document.getElementById('newProductSku');
         const title = nameInput.value.trim();
         const category = categoryInput.value.trim();
+        const menu = menuInput.value;
         const price = Number(priceInput.value);
         const key = normalizeTitle(title);
         const stock = stockInput.value.trim()
             ? Math.max(0, Number.parseInt(stockInput.value, 10) || 0)
             : null;
+        if (stock === 0 && document.getElementById('newProductAvailable').checked) {
+            if (!window.confirm('This product has zero stock. Mark it unavailable?')) return;
+            document.getElementById('newProductAvailable').checked = false;
+        }
         const prepTime = Math.max(0, Number.parseInt(prepTimeInput.value, 10) || 0);
         const sku = skuInput.value.trim();
         if (!title || !category || !priceInput.value.trim() || !Number.isFinite(price) || price <= 0) {
@@ -2397,6 +2462,7 @@
             nameInput.focus();
             return;
         }
+        const imageFile = imageUploadInput.files?.[0];
         let image = imageInput.value.trim();
         if (image) {
             try {
@@ -2409,8 +2475,28 @@
                 imageInput.focus();
                 return;
             }
-        } else {
-            image = new URL('../BiteRushHomePage/HomePagePics/burger.png', window.location.href).href;
+        }
+        if (!image && !imageFile) {
+            productMessage.textContent = 'Enter an image URL or upload an image for this dish.';
+            productMessage.hidden = false;
+            imageInput.focus();
+            return;
+        }
+        if (imageFile) {
+            if (imageFile.size > 768000
+                || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(imageFile.type)) {
+                productMessage.textContent = 'Choose a JPEG, PNG, WebP, or GIF image that is 750 KB or less.';
+                productMessage.hidden = false;
+                imageUploadInput.focus();
+                return;
+            }
+            try {
+                image = await uploadProductImage(imageFile);
+            } catch (error) {
+                productMessage.textContent = error.message;
+                productMessage.hidden = false;
+                return;
+            }
         }
         if (!saveUndoSnapshot()) return;
         customProducts.push({
@@ -2420,12 +2506,17 @@
             title,
             price,
             category,
+            menu,
             description: descriptionInput.value.trim(),
             image,
             stock,
             prepTime,
+            time: timeInput.value.trim(),
+            calories: caloriesInput.value.trim(),
+            tags: tagsInput.value.trim(),
             sku,
-            featured: true,
+            featured: document.getElementById('newProductFeatured').checked,
+            available: document.getElementById('newProductAvailable').checked,
             deleted: false,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -2433,11 +2524,14 @@
         });
         try {
             localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
-            productMessage.textContent = `${title} added to the featured menu on this browser.`;
+            productMessage.textContent = `${title} is being saved to the menu database.`;
             productMessage.hidden = false;
             event.currentTarget.reset();
+            document.getElementById('newProductAvailable').checked = true;
+            document.getElementById('newProductFeatured').checked = true;
             renderProducts();
             window.dispatchEvent(new Event('biterush-menu-updated'));
+            await productSaveQueue;
         } catch (error) {
             customProducts.pop();
             console.error('Unable to add custom product:', error);
