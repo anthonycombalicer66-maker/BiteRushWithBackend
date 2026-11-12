@@ -836,6 +836,7 @@
 
     window.BiteRushCart = { add, change, get items() { return [...cart]; } };
     window.addEventListener('biterush-menu-updated', refreshProductRatings);
+    window.addEventListener('biterush-cards-rendered', refreshProductRatings);
     refreshProductRatings();
     installCatalogControls();
     const clearAccountCache = nextAccountId => {
