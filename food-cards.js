@@ -10,7 +10,10 @@
 
     window.BiteRushSharedFoodCards = true;
     const normalize = value => String(value || '').trim().toLocaleLowerCase();
-    const formatPrice = value => `₱ ${Math.round(Number(value)).toLocaleString('en-PH')}`;
+    const formatPrice = value => `₱ ${Number(value).toLocaleString('en-PH', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    })}`;
     const imageUrl = value => {
         if (!value) return `${projectRoot}/BiteRushHomePage/HomePagePics/burger.png`;
         if (/^(?:https?:|data:)/i.test(value)) return value;
@@ -19,6 +22,14 @@
     const detailUrl = value => value
         ? new URL(value, `${location.origin}${projectRoot}/SearchResults/`).href
         : '#';
+    const productUrl = product => {
+        if (product.link) return detailUrl(product.link);
+        if (!product.productId) return '#';
+        const url = new URL(`${projectRoot}/FoodDetails/Product/index.html`, location.origin);
+        url.searchParams.set('id', String(product.productId));
+        url.searchParams.set('from', `${location.pathname}${location.search}`);
+        return url.href;
+    };
     const getMenu = () => {
         if (grid.classList.contains('search-results-grid')) return 'all';
         const path = location.pathname.toLocaleLowerCase();
@@ -113,6 +124,7 @@
     }
 
     function createCard(product) {
+        const productLink = productUrl(product);
         const card = document.createElement('article');
         card.className = 'food-card';
         card.dataset.title = product.title;
@@ -120,7 +132,7 @@
         card.dataset.menu = product.menu;
         card.dataset.price = String(product.price);
         card.dataset.img = imageUrl(product.image);
-        card.dataset.link = detailUrl(product.link);
+        card.dataset.link = productLink;
         if (product.productId) card.dataset.productId = String(product.productId);
 
         const favorite = document.createElement('button');
@@ -177,14 +189,14 @@
         const price = document.createElement('span');
         price.className = 'price';
         price.textContent = formatPrice(product.price);
-        const link = document.createElement('a');
-        link.href = detailUrl(product.link);
+        const buyLink = document.createElement('a');
+        buyLink.href = productLink;
         const buy = document.createElement('button');
         buy.type = 'button';
         buy.className = 'buy-btn';
         buy.textContent = 'Buy';
-        link.appendChild(buy);
-        priceRow.append(price, link);
+        buyLink.appendChild(buy);
+        priceRow.append(price, buyLink);
         info.append(title, hover, meta, priceRow);
 
         const add = document.createElement('button');
@@ -192,9 +204,10 @@
         add.className = 'add-btn';
         add.setAttribute('aria-label', `Add ${product.title} to cart`);
         add.dataset.title = product.title;
+        add.dataset.category = product.category;
         add.dataset.price = String(product.price);
         add.dataset.img = imageUrl(product.image);
-        add.dataset.link = detailUrl(product.link);
+        add.dataset.link = productLink;
         if (product.productId) add.dataset.productId = String(product.productId);
         add.textContent = '+';
 

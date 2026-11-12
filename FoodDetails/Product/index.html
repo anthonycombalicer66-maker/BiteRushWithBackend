@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="../../darkmode.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BiteRush - Dish Details</title>
+    <link rel="stylesheet" href="../Lunch/LunchDetails.css">
+    <link rel="stylesheet" href="../../Cart/cart.css?v=9">
+    <link rel="stylesheet" href="../../darkmode.css">
+    <link rel="stylesheet" href="../../BackButtons.css">
+</head>
+<body>
+    <nav>
+        <a class="logo-section" href="../../index.html" aria-label="BiteRush home">
+            <img src="../../BiteRushHomePage/HomePagePics/burger.png" alt="BiteRush Logo">
+            <h1>BiteRush</h1>
+        </a>
+        <a class="user-profile" href="../../UserInfo/index.html" aria-label="User profile">
+            <img src="../../BiteRushHomePage/HomePagePics/image%20108.png" alt="User Profile">
+        </a>
+    </nav>
+    <a class="back-btn" id="productDetailBack" href="../../index.html" aria-label="Go back to menu">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+    </a>
+
+    <main class="checkout-container">
+        <p id="productDetailStatus" role="status" aria-live="polite">Loading dish details…</p>
+        <p id="productDetailError" role="alert" hidden></p>
+        <div class="checkout-card item-card" data-product-detail hidden>
+            <img class="item-img" alt="">
+            <div class="item-details">
+                <button class="favorite-btn product-detail-favorite" type="button"
+                    aria-label="Add this dish to favorites" aria-pressed="false" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                </button>
+                <h2 class="item-title"></h2>
+                <h3 class="item-subtitle"></h3>
+                <p class="item-description"></p>
+                <div class="item-meta"></div>
+            </div>
+            <div class="item-quantity-price">
+                <span class="item-price"></span>
+                <div class="quantity-control">
+                    <button class="qty-btn" type="button" aria-label="Remove one">−</button>
+                    <span class="qty-count">1</span>
+                    <button class="qty-btn" type="button" aria-label="Add one">+</button>
+                </div>
+            </div>
+        </div>
+    </main>
+    <script src="../../api.js?v=7"></script>
+    <script src="product-detail.js?v=2"></script>
+    <script src="../../Cart/cart.js?v=15"></script>
+    <script src="../../favorites-sync.js?v=6"></script>
+</body>
+</html>

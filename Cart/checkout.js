@@ -9,6 +9,16 @@
         const checkoutKey = 'biterush_checkout_request';
         const singleItemCheckoutKey = 'biterush_single_checkout_keys';
         const singleItemCheckout = new URLSearchParams(window.location.search).get('checkout') === 'single-item';
+        const status = document.createElement('p');
+        status.className = 'checkout-feedback';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        status.hidden = true;
+        document.body.appendChild(status);
+        const notify = message => {
+            status.textContent = message;
+            status.hidden = false;
+        };
         const singleItemKeys = (() => {
             if (!singleItemCheckout) return null;
             try {
@@ -30,16 +40,27 @@
             try {
                 const value = JSON.parse(localStorage.getItem(key) || '[]');
                 const overrides = JSON.parse(localStorage.getItem(overridesKey) || '{}');
+                const overrideFor = item => {
+                    const override = overrides[String(item.title || '').trim().toLocaleLowerCase()];
+                    const productId = Number(item.productId);
+                    if (Number.isSafeInteger(productId) && productId > 0) {
+                        return Number(override?.databaseId) === productId ? override : null;
+                    }
+                    return item.link ? null : override;
+                };
                 return Array.isArray(value)
                     ? value
                         .filter(item => item && item.title && item.img)
-                        .map(item => ({
-                            ...item,
-                            price: Number.isFinite(Number(overrides[item.title.trim().toLocaleLowerCase()]?.price))
-                                ? Number(overrides[item.title.trim().toLocaleLowerCase()].price)
-                                : Number(item.price),
-                            quantity: Number(item.quantity)
-                        }))
+                        .map(item => {
+                            const override = overrideFor(item);
+                            return {
+                                ...item,
+                                price: Number.isFinite(Number(override?.price))
+                                    ? Number(override.price)
+                                    : Number(item.price),
+                                quantity: Number(item.quantity)
+                            };
+                        })
                         .filter(item => Number.isFinite(item.price) && item.price >= 0
                             && Number.isSafeInteger(item.quantity) && item.quantity > 0)
                     : [];
@@ -49,7 +70,13 @@
             }
         };
         const money = value => `₱ ${Number(value).toFixed(2)}`;
-        const cartItemKey = item => item.key || item.link || `${item.title}|${item.img}`;
+        const cartItemKey = item => {
+            const productId = Number(item && item.productId);
+            if (Number.isSafeInteger(productId) && productId > 0) {
+                return `product:${productId}|${String(item.instructions || '').trim()}`;
+            }
+            return item.key || item.link || `${item.title}|${item.img}`;
+        };
         const selectCheckoutItems = items => singleItemCheckout
             ? items.filter(item => singleItemKeys.has(cartItemKey(item)))
             : items;
@@ -119,12 +146,17 @@
                 reviewsLink.setAttribute('aria-label', `See ratings and reviews for ${currentTitle}`);
                 reviewsLink.title = `Ratings for ${currentTitle}`;
             }
-            const current = storedCart.find(item => item.key === window.location.pathname
-                || item.link === window.location.pathname);
-            const detailItems = itemCard && Number.isFinite(currentPrice)
-                ? storedCart.filter(item => item.link === window.location.pathname
+            const detailProductId = Number(itemCard?.dataset.productId
+                || new URLSearchParams(window.location.search).get('id'));
+            const currentDetailItem = item => Number.isSafeInteger(detailProductId)
+                && detailProductId > 0
+                ? Number(item.productId) === detailProductId
+                : item.link === window.location.pathname
                     || item.key === window.location.pathname
-                    || item.key?.startsWith(`${window.location.pathname}|`))
+                    || item.key?.startsWith(`${window.location.pathname}|`);
+            const current = storedCart.find(currentDetailItem);
+            const detailItems = itemCard && Number.isFinite(currentPrice)
+                ? storedCart.filter(currentDetailItem)
                 : [];
             const cart = singleItemCheckout
                 ? selectCheckoutItems(storedCart)
@@ -272,16 +304,20 @@
                             overrides = JSON.parse(localStorage.getItem(overridesKey) || '{}');
                         } catch (error) {
                             console.error('Unable to read product availability:', error);
-                            window.alert('We could not verify menu availability. Please reload checkout and try again.');
+                            notify('We could not verify menu availability. Please reload checkout and try again.');
                             orderButton.disabled = false;
                             return;
                         }
                         const unavailable = orderedCart.find(item => {
                             const override = overrides[item.title.trim().toLocaleLowerCase()];
+                            const productId = Number(item.productId);
+                            if (Number.isSafeInteger(productId) && productId > 0
+                                && Number(override?.databaseId) !== productId) return false;
+                            if (item.link && !(Number.isSafeInteger(productId) && productId > 0)) return false;
                             return override?.available === false || override?.deleted === true;
                         });
                         if (unavailable) {
-                            window.alert(`${unavailable.title} is currently unavailable. Please remove it from your cart before ordering.`);
+                            notify(`${unavailable.title} is currently unavailable. Please remove it from your cart before ordering.`);
                             orderButton.disabled = false;
                             return;
                         }
@@ -375,7 +411,7 @@
                             }
                         } catch (error) {
                             console.error('Unable to save completed order:', error);
-                            window.alert(error.message || 'We could not save your order. Please sign in and try again.');
+                            notify(error.message || 'We could not save your order. Please sign in and try again.');
                             orderButton.disabled = false;
                             return;
                         }

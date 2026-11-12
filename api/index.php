@@ -755,7 +755,7 @@ try {
                 respond(400, ['error' => 'A cart item has an invalid price.']);
             }
             $requestedProductId = nullable_product_id($item['productId'] ?? $item['product_id'] ?? null);
-            if ($requestedProductId === null) {
+            if ($requestedProductId === null && $path === '') {
                 $productLookup = $pdo->prepare('SELECT id FROM products WHERE title = ?');
                 $productLookup->execute([$title]);
                 $foundProductId = $productLookup->fetchColumn();
@@ -889,18 +889,21 @@ try {
                 respond(400, ['error' => 'A cart item has an invalid quantity or price.']);
             }
             $requestedProductId = nullable_product_id($item['productId'] ?? $item['product_id'] ?? null);
+            $path = clean_text($item['link'] ?? '', 1000, 'Dish path');
+            $catalogProduct = false;
             if ($requestedProductId !== null) {
                 $product = $pdo->prepare(
                     'SELECT id, title, price, stock, available, deleted FROM products WHERE id = ? FOR UPDATE'
                 );
                 $product->execute([$requestedProductId]);
-            } else {
+                $catalogProduct = $product->fetch();
+            } elseif ($path === '') {
                 $product = $pdo->prepare(
                     'SELECT id, title, price, stock, available, deleted FROM products WHERE title = ? FOR UPDATE'
                 );
                 $product->execute([$title]);
+                $catalogProduct = $product->fetch();
             }
-            $catalogProduct = $product->fetch();
             $productId = null;
             if ($catalogProduct) {
                 $productId = (int)$catalogProduct['id'];
@@ -924,7 +927,7 @@ try {
                 'title' => $title,
                 'reviewTitle' => clean_text($item['reviewTitle'] ?? $title, 120, 'Dish name'),
                 'image' => clean_image($item['img'] ?? '', 'Dish image'),
-                'path' => clean_text($item['link'] ?? '', 1000, 'Dish path'),
+                'path' => $path,
                 'instructions' => clean_text($item['instructions'] ?? '', 500, 'Item instructions'),
                 'price' => $price,
                 'quantity' => $quantity,
@@ -1458,6 +1461,24 @@ try {
             respond(500, ['error' => 'The product image could not be saved. Check folder permissions.']);
         }
         respond(201, ['image' => '../uploads/products/' . $filename]);
+    }
+
+    if ($action === 'product-detail' && $method === 'GET') {
+        $productId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+        if ($productId === false || $productId < 1) {
+            respond(400, ['error' => 'Product ID is invalid.']);
+        }
+        $statement = $pdo->prepare(
+            'SELECT id, title, source_key, sku, category, description, image, price, stock,
+                    available, deleted, metadata, updated_at
+             FROM products WHERE id = ? AND deleted = FALSE'
+        );
+        $statement->execute([$productId]);
+        $product = $statement->fetch();
+        if (!$product) {
+            respond(404, ['error' => 'This dish could not be found.']);
+        }
+        respond(200, ['product' => product_fields($product)]);
     }
 
     if (($action === 'products' || $action === 'admin-products') && $method === 'GET') {

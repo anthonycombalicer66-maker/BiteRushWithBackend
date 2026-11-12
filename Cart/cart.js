@@ -4,7 +4,8 @@
     const PRODUCT_OVERRIDES_KEY = 'biterush_product_overrides';
     const CUSTOM_PRODUCTS_KEY = 'biterush_custom_products';
     const projectPath = location.pathname.match(/^(.*?\/BiteRush)(?:\/|$)/i);
-    const apiUrl = `${projectPath ? projectPath[1] : ''}/api/index.php`;
+    const projectRootPath = projectPath ? projectPath[1] : '';
+    const apiUrl = `${projectRootPath}/api/index.php`;
     const initialAccountId = localStorage.getItem('biterush_active_user_id');
     const accountHeaders = () => {
         const api = window.BiteRushApi;
@@ -154,6 +155,7 @@
             if (!grid) return;
             const card = document.createElement('div');
             card.className = 'food-card';
+            card.dataset.category = product.category || '';
             const image = document.createElement('img');
             image.className = 'food-img';
             image.src = catalogImageUrl(product.image) || '../BiteRushHomePage/HomePagePics/burger.png';
@@ -208,6 +210,7 @@
         const category = document.createElement('div');
         category.className = 'search-result-category';
         category.textContent = product.category || 'Menu';
+        card.dataset.category = product.category || '';
         const description = document.createElement('p');
         description.className = 'search-result-description';
         description.textContent = product.description || '';
@@ -250,6 +253,7 @@
             if (!product || !product.title || !Number.isFinite(Number(product.price))) return;
             const key = normalizeTitle(product.title);
             databaseProducts.set(key, product);
+            databaseProductsById.set(Number(product.id), product);
             productOverrides[key] = {
                 ...(productOverrides[key] || {}),
                 databaseId: product.id,
@@ -276,11 +280,17 @@
             result.products.forEach(appendDatabaseProduct);
         }
         cart = cart.map(item => {
-            const product = databaseProducts.get(normalizeTitle(item.title));
-            return product
-                ? { ...item, title: product.title, productId: Number(product.id), price: Number(product.price),
-                    img: catalogImageUrl(product.image) || item.img }
-                : item;
+            const product = databaseProductFor(item);
+            if (!product) return item;
+            const updated = {
+                ...item,
+                title: product.title,
+                productId: Number(product.id),
+                price: Number(product.price),
+                img: catalogImageUrl(product.image) || item.img
+            };
+            updated.key = itemKey(updated);
+            return updated;
         });
         try {
             localStorage.setItem(CART_KEY, JSON.stringify(cart));
@@ -292,12 +302,34 @@
         window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
     };
     const customProducts = readArray(CUSTOM_PRODUCTS_KEY, []);
-    const getStock = title => {
-        const override = productOverrides[normalizeTitle(title)];
+    const databaseProductFor = item => {
+        const productId = Number(item && item.productId);
+        if (Number.isSafeInteger(productId) && productId > 0) {
+            return databaseProductsById.get(productId) || null;
+        }
+        if (item && item.link) return null;
+        return databaseProducts.get(normalizeTitle(item && item.title)) || null;
+    };
+    const productOverrideFor = item => {
+        const override = productOverrides[normalizeTitle(item && item.title)];
+        const productId = Number(item && item.productId);
+        if (Number.isSafeInteger(productId) && productId > 0) {
+            return Number(override && override.databaseId) === productId ? override : null;
+        }
+        return item && item.link ? null : override;
+    };
+    const getStock = item => {
+        const product = databaseProductFor(item);
+        if (product) {
+            return product.stock === null || product.stock === undefined || product.stock === ''
+                ? null
+                : Math.max(0, Number(product.stock));
+        }
+        const override = productOverrideFor(item);
         if (override && override.stock !== undefined && override.stock !== null && override.stock !== ''
             && Number.isFinite(Number(override.stock))) return Math.max(0, Number(override.stock));
         const customProduct = customProducts.find(product =>
-            product && normalizeTitle(product.title) === normalizeTitle(title)
+            product && !item.link && normalizeTitle(product.title) === normalizeTitle(item.title)
         );
         return customProduct && customProduct.stock !== undefined && customProduct.stock !== null && customProduct.stock !== ''
             && Number.isFinite(Number(customProduct.stock))
@@ -315,22 +347,27 @@
     };
     let productOverrides = readObject(PRODUCT_OVERRIDES_KEY, {});
     const databaseProducts = new Map();
+    const databaseProductsById = new Map();
     const readCart = () => {
         try {
             const value = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
             return Array.isArray(value)
                 ? value
                     .filter(item => item && item.title && item.img)
-                    .map(item => ({
-                        ...item,
-                        instructions: String(item.instructions || ''),
-                        price: Number.isFinite(Number(
-                            productOverrides[normalizeTitle(item.title)]?.price
-                        ))
-                            ? Number(productOverrides[normalizeTitle(item.title)].price)
-                            : Number(item.price),
-                        quantity: Number(item.quantity)
-                    }))
+                    .map(item => {
+                        const product = databaseProductFor(item);
+                        const override = productOverrideFor(item);
+                        return {
+                            ...item,
+                            instructions: String(item.instructions || ''),
+                            price: product
+                                ? Number(product.price)
+                                : Number.isFinite(Number(override && override.price))
+                                    ? Number(override.price)
+                                    : Number(item.price),
+                            quantity: Number(item.quantity)
+                        };
+                    })
                     .filter(item => Number.isFinite(item.price) && item.price >= 0
                         && Number.isSafeInteger(item.quantity) && item.quantity > 0)
                 : [];
@@ -363,26 +400,54 @@
         window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
         render();
     };
-    const money = value => `₱ ${Number(value).toFixed(0)}`;
-    const itemKey = item => item.key || item.link || `${item.title}|${item.img}`;
+    const feedback = document.createElement('div');
+    feedback.className = 'shared-cart-feedback';
+    feedback.setAttribute('role', 'status');
+    feedback.setAttribute('aria-live', 'polite');
+    feedback.setAttribute('aria-atomic', 'true');
+    feedback.hidden = true;
+    document.body.appendChild(feedback);
+    let feedbackTimer;
+    const notify = message => {
+        feedback.textContent = message;
+        feedback.hidden = false;
+        feedback.classList.add('is-visible');
+        clearTimeout(feedbackTimer);
+        feedbackTimer = setTimeout(() => {
+            feedback.classList.remove('is-visible');
+            feedbackTimer = setTimeout(() => {
+                if (!feedback.classList.contains('is-visible')) feedback.hidden = true;
+            }, 200);
+        }, 3200);
+    };
+    const money = value => `₱ ${Number(value).toLocaleString('en-PH', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    })}`;
+    const itemKey = item => {
+        const productId = Number(item && item.productId);
+        if (Number.isSafeInteger(productId) && productId > 0) {
+            return `product:${productId}|${String(item.instructions || '').trim()}`;
+        }
+        return item.key || item.link || `${item.title}|${item.img}`;
+    };
     const add = item => {
-        const key = normalizeTitle(item.title);
-        const product = databaseProducts.get(key);
-        const override = productOverrides[key];
-        if (override && override.deleted === true) {
-            window.alert(`${item.title} is not currently available.`);
+        const product = databaseProductFor(item);
+        const override = productOverrideFor(item);
+        if ((product && product.deleted === true) || (override && override.deleted === true)) {
+            notify(`${item.title} is not currently available.`);
             return false;
         }
-        if (override && override.available === false) {
-            window.alert(`${item.title} is currently unavailable.`);
+        if ((product && product.available === false) || (override && override.available === false)) {
+            notify(`${item.title} is currently unavailable.`);
             return false;
         }
-        const stock = getStock(item.title);
+        const stock = getStock(item);
         const currentQuantity = cart
             .filter(entry => itemKey(entry) === itemKey(item))
             .reduce((sum, entry) => sum + entry.quantity, 0);
         if (stock !== null && currentQuantity >= stock) {
-            window.alert(stock === 0
+            notify(stock === 0
                 ? `${item.title} is currently out of stock.`
                 : `Only ${stock} ${item.title} item${stock === 1 ? ' is' : 's are'} available.`);
             return false;
@@ -411,9 +476,9 @@
         const item = cart.find(entry => itemKey(entry) === title);
         if (!item) return;
         if (amount > 0) {
-            const stock = getStock(item.title);
+            const stock = getStock(item);
             if (stock !== null && item.quantity >= stock) {
-                window.alert(stock === 0
+                notify(stock === 0
                     ? `${item.title} is currently out of stock.`
                     : `Only ${stock} ${item.title} item${stock === 1 ? ' is' : 's are'} available.`);
                 return;
@@ -446,18 +511,10 @@
         button.appendChild(badge);
     }
     const pathname = location.pathname.replace(/\\/g, '/');
-    const isFoodDetailsPage = /\/FoodDetails\//i.test(pathname)
-        || /\/BiteRushHomePage\/FoodDetailsHome\//i.test(pathname);
     const isMenuPage = /\/BiteRushFoodMenuPages\//i.test(pathname);
     const isProjectRootPage = pathname === '/'
         || /(?:^|\/)BiteRush\/(?:index\.html)?$/i.test(pathname);
-    const checkoutPath = isFoodDetailsPage
-        ? '../../../DeliveryAddress/index.html'
-        : isMenuPage
-            ? '../../DeliveryAddress/index.html'
-            : isProjectRootPage
-                ? 'DeliveryAddress/index.html'
-                : '../DeliveryAddress/index.html';
+    const checkoutPath = `${projectRootPath}/DeliveryAddress/index.html`;
 
     function applyProductSettings() {
         document.querySelectorAll('.food-card').forEach(card => {
@@ -478,6 +535,13 @@
         if (!title) return;
         const override = productOverrides[normalizeTitle(title)];
         if (!override) return;
+        const category = card.dataset.category
+            || card.querySelector('.food-category, .search-result-category, .item-subtitle')?.textContent.trim();
+        const cardProductId = Number(card.dataset.productId);
+        const matchesProduct = Number.isSafeInteger(cardProductId) && cardProductId > 0
+            ? cardProductId === Number(override.databaseId)
+            : Boolean(category && normalizeTitle(category) === normalizeTitle(override.category));
+        if (override.databaseId && !matchesProduct) return;
         if (override.databaseId) {
             card.dataset.productId = String(override.databaseId);
             card.querySelectorAll('.add-btn, .search-result-add, .shared-add-detail')
@@ -725,18 +789,25 @@
         const image = card.querySelector('.food-img, .search-result-image img');
         const source = addButton.dataset;
         const detailLink = source.link || card.dataset.link || card.querySelector('.buy-btn')?.closest('a')?.getAttribute('href');
+        const detailUrl = detailLink ? new URL(detailLink, location.href) : null;
         add({
             title: source.title || card.dataset.title || card.querySelector('.food-title, h3')?.textContent.trim(),
             productId: source.productId ? Number(source.productId) : undefined,
+            category: source.category || card.dataset.category
+                || card.querySelector('.food-category, .search-result-category')?.textContent.trim(),
             price: Number(source.price || card.dataset.price
                 || card.querySelector('.price, .search-result-price')?.textContent.replace(/[^\d.]/g, '')),
             img: source.img || card.dataset.img || image?.getAttribute('src'),
-            link: detailLink ? new URL(detailLink, location.href).pathname : ''
+            link: detailUrl ? `${detailUrl.pathname}${detailUrl.search}` : ''
         });
     });
 
     const detailCard = document.querySelector('.item-card');
     if (detailCard) {
+        const routeProductId = Number(new URLSearchParams(location.search).get('id'));
+        const dynamicProductId = Number.isSafeInteger(routeProductId) && routeProductId > 0
+            ? routeProductId
+            : null;
         const detailImage = detailCard.querySelector('.item-img');
         const notes = document.createElement('textarea');
         notes.className = 'dish-special-instructions';
@@ -748,20 +819,35 @@
         const detailInfo = detailCard.querySelector('.item-details');
         if (detailImage) detailImage.after(notes);
         else if (detailInfo) detailInfo.before(notes);
-        const detailItem = () => ({
-            key: `${location.pathname}|${notes.value.trim()}`,
-            title: detailCard.querySelector('.item-title')?.textContent.trim(),
-            reviewTitle: detailCard.querySelector('.item-subtitle')?.textContent.trim()
-                || detailCard.querySelector('.item-title')?.textContent.trim(),
-            price: Number(detailCard.querySelector('.item-price')?.textContent.replace(/[^\d.]/g, '')),
-            img: detailImage?.getAttribute('src'),
-            link: location.pathname,
-            instructions: notes.value.trim()
-        });
-        const detailKey = location.pathname;
-        const existingDetailItem = cart.find(item =>
-            item.key === detailKey || item.key.startsWith(`${detailKey}|`)
-        );
+        const currentProductId = () => {
+            const productId = Number(detailCard.dataset.productId || dynamicProductId);
+            return Number.isSafeInteger(productId) && productId > 0 ? productId : null;
+        };
+        const detailItem = () => {
+            const productId = currentProductId();
+            const instructions = notes.value.trim();
+            return {
+                key: productId
+                    ? `product:${productId}|${instructions}`
+                    : `${location.pathname}|${instructions}`,
+                title: detailCard.querySelector('.item-title')?.textContent.trim(),
+                reviewTitle: detailCard.querySelector('.item-subtitle')?.textContent.trim()
+                    || detailCard.querySelector('.item-title')?.textContent.trim(),
+                productId: productId || undefined,
+                category: detailCard.dataset.category
+                    || detailCard.querySelector('.item-subtitle')?.textContent.trim(),
+                price: Number(detailCard.querySelector('.item-price')?.textContent.replace(/[^\d.]/g, '')),
+                img: detailImage?.getAttribute('src'),
+                link: `${location.pathname}${location.search}`,
+                instructions
+            };
+        };
+        const matchesDetail = item => dynamicProductId
+            ? Number(item.productId) === dynamicProductId
+            : item.link === location.pathname
+                || item.key === location.pathname
+                || item.key?.startsWith(`${location.pathname}|`);
+        const existingDetailItem = cart.find(matchesDetail);
         const currentDetailPrice = Number(
             detailCard.querySelector('.item-price')?.textContent.replace(/[^\d.]/g, '')
         );
@@ -771,12 +857,13 @@
             saveCart();
         }
         const getDetailQuantity = () => cart
-            .filter(item => item.key === detailKey || item.key.startsWith(`${detailKey}|`))
+            .filter(matchesDetail)
             .reduce((sum, item) => sum + item.quantity, 0);
         const detailQuantity = detailCard.querySelector('.qty-count');
         const updateDetailQuantity = () => {
             if (detailQuantity) detailQuantity.textContent = getDetailQuantity() || 1;
         };
+        window.addEventListener('biterush-cart-updated', updateDetailQuantity);
         if (!detailCard.querySelector('.shared-add-detail')) {
             const detailAddButton = document.createElement('button');
             detailAddButton.className = 'shared-add-detail';
@@ -785,18 +872,18 @@
             detailCard.querySelector('.item-quantity-price')?.appendChild(detailAddButton);
             applyProductSetting(detailCard, detailCard.querySelector('.item-title')?.textContent.trim());
             detailAddButton.addEventListener('click', () => {
-                add(detailItem());
-                drawer.classList.add('open');
-                overlay.classList.add('open');
+                if (add(detailItem())) {
+                    drawer.classList.add('open');
+                    overlay.classList.add('open');
+                }
                 updateDetailQuantity();
             });
             detailCard.querySelectorAll('.qty-btn').forEach((control, index) => {
                 control.addEventListener('click', () => {
                     if (index === 1) add(detailItem());
                     else {
-                        const item = cart.find(entry =>
-                            entry.key === `${detailKey}|${notes.value.trim()}`
-                        );
+                        const targetKey = itemKey(detailItem());
+                        const item = cart.find(entry => itemKey(entry) === targetKey);
                         if (item) change(itemKey(item), -1);
                     }
                     updateDetailQuantity();
@@ -808,13 +895,9 @@
                 event.preventDefault();
                 if (!getDetailQuantity() && !add(detailItem())) return;
 
-                const selectedItems = cart.filter(item =>
-                    item.link === detailKey
-                    || item.key === detailKey
-                    || item.key?.startsWith(`${detailKey}|`)
-                );
+                const selectedItems = cart.filter(matchesDetail);
                 if (!selectedItems.length) {
-                    window.alert('This item could not be prepared for checkout. Please try again.');
+                    notify('This item could not be prepared for checkout. Please try again.');
                     return;
                 }
 
@@ -823,7 +906,7 @@
                     sessionStorage.setItem(SINGLE_ITEM_CHECKOUT_KEY, JSON.stringify(selectedKeys));
                 } catch (error) {
                     console.error('Unable to prepare single-item checkout:', error);
-                    window.alert('This item could not be prepared for checkout. Please try again.');
+                    notify('This item could not be prepared for checkout. Please try again.');
                     return;
                 }
 
@@ -835,7 +918,7 @@
         updateDetailQuantity();
     }
 
-    window.BiteRushCart = { add, change, get items() { return [...cart]; } };
+    window.BiteRushCart = { add, change, notify, get items() { return [...cart]; } };
     window.addEventListener('biterush-menu-updated', refreshProductRatings);
     window.addEventListener('biterush-cards-rendered', refreshProductRatings);
     refreshProductRatings();
@@ -883,14 +966,21 @@
         .then(result => {
             if (!result || !Array.isArray(result.items)) return;
             cart = result.items.map(item => {
-                const product = databaseProducts.get(normalizeTitle(item.title));
-                return product
-                    ? { ...item, title: product.title, productId: Number(product.id), price: Number(product.price),
-                        img: catalogImageUrl(product.image) || item.img }
-                    : item;
+                const product = databaseProductFor(item);
+                if (!product) return item;
+                const updated = {
+                    ...item,
+                    title: product.title,
+                    productId: Number(product.id),
+                    price: Number(product.price),
+                    img: catalogImageUrl(product.image) || item.img
+                };
+                updated.key = itemKey(updated);
+                return updated;
             });
             localStorage.setItem(CART_KEY, JSON.stringify(cart));
             render();
+            window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
         })
         .catch(error => console.error('Unable to load cart from the server:', error));
     window.addEventListener('storage', event => {
