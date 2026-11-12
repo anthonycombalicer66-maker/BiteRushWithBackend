@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17202a">
     <title>BiteRush - Admin Dashboard</title>
     <link rel="stylesheet" href="../DeliveryAddress/styleadd.css">
-    <link rel="stylesheet" href="./dashboard.css">
+    <link rel="stylesheet" href="./dashboard.css?v=20261112-product-create-3">
     <link rel="stylesheet" href="../darkmode.css">
     <link rel="stylesheet" href="../BackButtons.css">
 </head>
@@ -148,40 +148,64 @@
                 </div>
                 <p class="panel-description">Create dishes, update menu settings, and move dishes to or from the recycle bin.</p>
                 <form class="add-product-form" id="addProductForm">
-                    <label for="newProductName">Add a featured dish</label>
-                    <input id="newProductName" name="title" type="text" maxlength="60" placeholder="Dish name" required>
-                    <label for="newProductCategory" class="visually-hidden">Category</label>
-                    <input id="newProductCategory" name="category" type="text" maxlength="50" placeholder="Category" required>
-                    <label for="newProductMenu" class="visually-hidden">Menu section</label>
-                    <select id="newProductMenu" name="menu" required>
-                        <option value="Breakfast">Breakfast</option>
-                        <option value="Lunch">Lunch</option>
-                        <option value="Dinner">Dinner</option>
-                        <option value="Burger and Fries">Burger and Fries</option>
-                    </select>
-                    <label for="newProductPrice" class="visually-hidden">New dish price in pesos</label>
-                    <input id="newProductPrice" name="price" type="number" min="0.01" step="0.01" placeholder="Price (₱)" required>
-                    <label for="newProductDescription">Dish description</label>
-                    <textarea id="newProductDescription" name="description" maxlength="500" placeholder="Describe the dish" required></textarea>
-                    <label for="newProductImage" class="visually-hidden">Dish image address</label>
-                    <input id="newProductImage" name="image" type="text" maxlength="300" placeholder="Image URL (optional)">
-                    <label for="newProductImageUpload">Upload image (JPEG, PNG, WebP, or GIF; 750 KB or less)</label>
-                    <input id="newProductImageUpload" name="imageUpload" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
-                    <label for="newProductStock" class="visually-hidden">Stock quantity</label>
-                    <input id="newProductStock" name="stock" type="number" min="0" step="1" placeholder="Stock quantity">
-                    <label for="newProductPrepTime" class="visually-hidden">Preparation time</label>
-                    <input id="newProductPrepTime" name="prepTime" type="number" min="0" step="1" placeholder="Prep time (minutes)">
-                    <label for="newProductTime" class="visually-hidden">Card preparation time label</label>
-                    <input id="newProductTime" name="time" type="text" maxlength="50" placeholder="Card time label (e.g. 15–25 minutes)">
-                    <label for="newProductCalories" class="visually-hidden">Calories</label>
-                    <input id="newProductCalories" name="calories" type="text" maxlength="50" placeholder="Calories (optional)">
-                    <label for="newProductTags" class="visually-hidden">Dietary and filter tags</label>
-                    <input id="newProductTags" name="tags" type="text" maxlength="180" placeholder="Tags (e.g. spicy, vegan)">
-                    <label for="newProductSku" class="visually-hidden">SKU</label>
-                    <input id="newProductSku" name="sku" type="text" maxlength="40" placeholder="SKU (optional)">
-                    <label><input id="newProductAvailable" type="checkbox" checked> Available</label>
-                    <label><input id="newProductFeatured" type="checkbox" checked> Show on home page</label>
-                    <button class="admin-primary-button" type="submit">Add dish</button>
+                    <div class="product-form-intro">
+                        <h3>New menu item</h3>
+                        <p>Enter the dish details. Its website card is generated automatically.</p>
+                    </div>
+                    <div class="product-form-grid">
+                        <label class="product-form-field">Dish name
+                            <input id="newProductName" name="title" type="text" maxlength="60" placeholder="e.g. Crispy Chicken Bites" required>
+                        </label>
+                        <label class="product-form-field">Category
+                            <input id="newProductCategory" name="category" type="text" maxlength="50" placeholder="e.g. Chicken" required>
+                        </label>
+                        <label class="product-form-field">Menu section
+                            <select id="newProductMenu" name="menu" required>
+                                <option value="Breakfast">Breakfast</option>
+                                <option value="Lunch">Lunch</option>
+                                <option value="Dinner">Dinner</option>
+                                <option value="Burger and Fries">Burger and Fries</option>
+                            </select>
+                        </label>
+                        <label class="product-form-field">Price (₱)
+                            <input id="newProductPrice" name="price" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+                        </label>
+                        <label class="product-form-field product-form-field--wide">Description
+                            <textarea id="newProductDescription" name="description" maxlength="500" placeholder="Describe the dish" required></textarea>
+                        </label>
+                        <label class="product-form-field">Image URL <span class="product-form-hint">Optional if you upload an image</span>
+                            <input id="newProductImage" name="image" type="text" maxlength="300" placeholder="https://...">
+                        </label>
+                        <label class="product-form-field">Upload image
+                            <input id="newProductImageUpload" name="imageUpload" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+                            <span class="product-form-hint">JPEG, PNG, WebP, or GIF; up to 750 KB</span>
+                        </label>
+                        <label class="product-form-field">Stock <span class="product-form-hint">Leave blank for unlimited</span>
+                            <input id="newProductStock" name="stock" type="number" min="0" step="1" placeholder="Unlimited">
+                        </label>
+                        <label class="product-form-field">Prep time (minutes)
+                            <input id="newProductPrepTime" name="prepTime" type="number" min="0" step="1" placeholder="e.g. 15">
+                        </label>
+                        <label class="product-form-field">Card time label
+                            <input id="newProductTime" name="time" type="text" maxlength="50" placeholder="e.g. 15–25 minutes">
+                        </label>
+                        <label class="product-form-field">Calories
+                            <input id="newProductCalories" name="calories" type="text" maxlength="50" placeholder="e.g. 450 kcal">
+                        </label>
+                        <label class="product-form-field">Dietary/filter tags
+                            <input id="newProductTags" name="tags" type="text" maxlength="180" placeholder="e.g. spicy, vegan">
+                        </label>
+                        <label class="product-form-field">SKU <span class="product-form-hint">Optional</span>
+                            <input id="newProductSku" name="sku" type="text" maxlength="40" placeholder="Optional SKU">
+                        </label>
+                    </div>
+                    <div class="product-form-footer">
+                        <div class="product-form-toggles">
+                            <label class="product-form-toggle"><input id="newProductAvailable" type="checkbox" checked> Available to order</label>
+                            <label class="product-form-toggle"><input id="newProductFeatured" type="checkbox" checked> Feature on home page</label>
+                        </div>
+                        <button class="admin-primary-button" type="submit">Create dish</button>
+                    </div>
                 </form>
                 <div class="menu-undo-row">
                     <p class="inline-message" id="productMessage" role="status" aria-live="polite" hidden></p>
@@ -398,6 +422,6 @@
     </dialog>
     <script src="../api.js?v=7"></script>
     <script src="../SearchResults/search-results-data.js"></script>
-    <script src="./dashboard.js?v=20261112-delivered-status-final-1" defer></script>
+    <script src="./dashboard.js?v=20261112-product-create-3" defer></script>
 </body>
 </html>

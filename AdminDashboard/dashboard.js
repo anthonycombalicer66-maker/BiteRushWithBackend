@@ -1069,6 +1069,12 @@
     const productSearch = document.getElementById('productSearch');
     const productsList = document.getElementById('productsList');
     const productMessage = document.getElementById('productMessage');
+    const showProductMessage = (message, state = 'info') => {
+        productMessage.textContent = message;
+        productMessage.hidden = false;
+        productMessage.classList.toggle('is-error', state === 'error');
+        productMessage.classList.toggle('is-warning', state === 'warning');
+    };
     let databaseProducts = [];
     let productCatalogReady = false;
     let productSaveQueue = Promise.resolve();
@@ -1204,16 +1210,23 @@
                 if (previousIndex === -1) databaseProducts.push(saved);
                 else databaseProducts[previousIndex] = saved;
             });
-            localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
-            productMessage.textContent = 'Menu changes saved to the database.';
-            productMessage.hidden = false;
+            let browserCacheSaved = true;
+            try {
+                localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
+            } catch (error) {
+                browserCacheSaved = false;
+                console.error('Menu changes were saved to MySQL, but the browser cache could not be updated:', error);
+            }
+            showProductMessage(browserCacheSaved
+                ? 'Menu changes saved to the database.'
+                : 'Menu changes saved to MySQL. Browser storage could not be updated; the database remains up to date.',
+            browserCacheSaved ? 'info' : 'warning');
             const undoAvailability = await window.BiteRushApi.request('product-undo');
             serverUndoAvailable = undoAvailability.available === true;
             updateUndoButton();
         }).catch(error => {
             console.error('Unable to save the menu catalog to MySQL:', error);
-            productMessage.textContent = `Menu changes could not be saved to MySQL: ${error.message}`;
-            productMessage.hidden = false;
+            showProductMessage(`Menu changes could not be saved to MySQL: ${error.message}`, 'error');
         });
         return productSaveQueue;
     };
@@ -1271,9 +1284,18 @@
                 }
             });
             removeDuplicateCustomProducts();
-            localStorage.setItem(overridesKey, JSON.stringify(overrides));
-            localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
+            let browserCacheError = null;
+            try {
+                localStorage.setItem(overridesKey, JSON.stringify(overrides));
+                localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
+            } catch (error) {
+                browserCacheError = error;
+                console.error('Menu loaded from MySQL, but the browser cache could not be updated:', error);
+            }
             productCatalogReady = true;
+            if (browserCacheError) {
+                showProductMessage('Menu loaded from MySQL. Browser storage could not be updated; changes will be saved directly to the database.', 'warning');
+            }
             await persistProductCatalog();
             const undoAvailability = await window.BiteRushApi.request('product-undo');
             serverUndoAvailable = undoAvailability.available === true;
@@ -1281,8 +1303,7 @@
         } catch (error) {
             console.error('Unable to load the menu catalog from MySQL:', error);
             productCatalogReady = false;
-            productMessage.textContent = `Menu catalog could not be loaded from MySQL: ${error.message}`;
-            productMessage.hidden = false;
+            showProductMessage(`Menu catalog could not be loaded from MySQL: ${error.message}`, 'error');
         }
     };
     window.addEventListener('biterush-menu-updated', () => {
@@ -2413,6 +2434,8 @@
 
     document.getElementById('addProductForm').addEventListener('submit', async event => {
         event.preventDefault();
+        productMessage.hidden = true;
+        productMessage.classList.remove('is-error', 'is-warning');
         const nameInput = document.getElementById('newProductName');
         const categoryInput = document.getElementById('newProductCategory');
         const menuInput = document.getElementById('newProductMenu');
@@ -2523,9 +2546,14 @@
             updatedBy: identity.name || identity.username || 'Administrator'
         });
         try {
-            localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
-            productMessage.textContent = `${title} is being saved to the menu database.`;
-            productMessage.hidden = false;
+            try {
+                localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
+                showProductMessage(`${title} is being saved to the menu database.`);
+            } catch (error) {
+                if (!productCatalogReady) throw error;
+                console.error('Browser storage could not be updated; continuing with the database save:', error);
+                showProductMessage(`${title} is being saved directly to MySQL; browser storage could not be updated.`, 'warning');
+            }
             event.currentTarget.reset();
             document.getElementById('newProductAvailable').checked = true;
             document.getElementById('newProductFeatured').checked = true;
@@ -2535,8 +2563,7 @@
         } catch (error) {
             customProducts.pop();
             console.error('Unable to add custom product:', error);
-            productMessage.textContent = 'The dish could not be saved in this browser.';
-            productMessage.hidden = false;
+            showProductMessage(`The dish could not be saved: ${error.message}`, 'error');
             try {
                 localStorage.removeItem(undoKey);
             } catch (cleanupError) {
