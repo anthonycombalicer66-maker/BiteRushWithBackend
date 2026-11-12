@@ -83,6 +83,22 @@
     font-weight: 700;
 }
 
+@media (hover: hover) and (pointer: fine) {
+    .food-card .buy-btn {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(3px);
+        transition: opacity .18s ease, transform .18s ease;
+    }
+
+    .food-card:hover .buy-btn,
+    .food-card:focus-within .buy-btn {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+    }
+}
+
 .food-card > .add-btn {
     position: absolute;
     right: 0;
