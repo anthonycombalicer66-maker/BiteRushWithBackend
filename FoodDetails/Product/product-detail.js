@@ -44,59 +44,6 @@
         item.append(icon, document.createTextNode(text));
         container.appendChild(item);
     };
-    const favoriteButton = card.querySelector('.product-detail-favorite');
-    favoriteButton.addEventListener('click', () => {
-        const title = card.dataset.title;
-        if (!title) return;
-        const storageKey = window.BiteRushApi?.getFavoritesStorageKey?.()
-            || (localStorage.getItem('biterush_active_user_id')
-                ? `biterush_favorites_${localStorage.getItem('biterush_active_user_id')}`
-                : 'biterush_favorites_guest');
-        let favorites;
-        try {
-            const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            if (!Array.isArray(saved)) throw new Error('Saved favorites are invalid.');
-            favorites = saved;
-        } catch (error) {
-            console.error('Unable to read favorites on this device:', error);
-            errorMessage.textContent = 'Favorites could not be updated on this device.';
-            errorMessage.hidden = false;
-            return;
-        }
-        const existing = favorites.find(item => Number(item.productId) === productId
-            || String(item.title || '').trim().toLocaleLowerCase() === title.toLocaleLowerCase());
-        const nextFavorites = existing
-            ? favorites.filter(item => Number(item.productId) !== productId
-                && String(item.title || '').trim().toLocaleLowerCase() !== title.toLocaleLowerCase())
-            : [...favorites, {
-                title,
-                price: card.dataset.price,
-                img: card.dataset.img,
-                category: card.dataset.category,
-                desc: card.querySelector('.item-description').textContent,
-                link: card.dataset.link,
-                productId
-            }];
-        try {
-            localStorage.setItem(storageKey, JSON.stringify(nextFavorites));
-            const active = !existing;
-            favoriteButton.classList.toggle('favorited', active);
-            favoriteButton.setAttribute('aria-pressed', String(active));
-            favoriteButton.setAttribute(
-                'aria-label',
-                `${active ? 'Remove' : 'Add'} ${title} ${active ? 'from' : 'to'} favorites`
-            );
-            favoriteButton.querySelector('svg').style.fill = active ? '#ff3b5c' : '';
-            status.textContent = active ? 'Added to favorites.' : 'Removed from favorites.';
-            status.hidden = false;
-            window.dispatchEvent(new Event('biterush-favorites-updated'));
-        } catch (error) {
-            console.error('Unable to save favorites on this device:', error);
-            errorMessage.textContent = 'Favorites could not be saved on this device.';
-            errorMessage.hidden = false;
-        }
-    });
-
     const loadProduct = async () => {
         if (!Number.isSafeInteger(productId) || productId < 1) {
             showError('This dish link is invalid. Return to the menu and choose a dish again.');
@@ -166,10 +113,13 @@
                 card.querySelector('.item-details').appendChild(notice);
             }
             card.hidden = false;
+            document.querySelectorAll('[data-product-detail-content]').forEach(element => {
+                element.hidden = false;
+            });
             status.hidden = true;
             document.title = `${product.title} | BiteRush`;
             window.dispatchEvent(new CustomEvent('biterush-menu-updated'));
-            window.dispatchEvent(new CustomEvent('biterush-cards-rendered'));
+            window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
         } catch (error) {
             console.error('Unable to load dish details:', error);
             showError(error.message || 'Could not load this dish. Please return to the menu and try again.');

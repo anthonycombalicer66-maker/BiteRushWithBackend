@@ -53,7 +53,7 @@
     }
 
     function cardFor(button) {
-        return button.closest('.food-card, .search-result-card, .item-card');
+        return button.closest('.food-card, .search-result-card');
     }
 
     function titleFor(button) {

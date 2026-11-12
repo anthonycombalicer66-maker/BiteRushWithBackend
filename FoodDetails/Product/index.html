@@ -4,15 +4,15 @@
     <script src="../../darkmode.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BiteRush - Dish Details</title>
+    <title>BiteRush - Order Details</title>
     <link rel="stylesheet" href="../Lunch/LunchDetails.css">
-    <link rel="stylesheet" href="../../Cart/cart.css?v=9">
+    <link rel="stylesheet" href="../../Cart/cart.css?v=10">
     <link rel="stylesheet" href="../../darkmode.css">
     <link rel="stylesheet" href="../../BackButtons.css">
 </head>
 <body>
     <nav>
-        <a class="logo-section" href="../../index.html" aria-label="BiteRush home">
+        <a class="logo-section" href="../../BiteRushHomePage/index.html" aria-label="BiteRush home">
             <img src="../../BiteRushHomePage/HomePagePics/burger.png" alt="BiteRush Logo">
             <h1>BiteRush</h1>
         </a>
@@ -20,7 +20,8 @@
             <img src="../../BiteRushHomePage/HomePagePics/image%20108.png" alt="User Profile">
         </a>
     </nav>
-    <a class="back-btn" id="productDetailBack" href="../../index.html" aria-label="Go back to menu">
+    <a class="back-btn" id="productDetailBack"
+        href="../../BiteRushFoodMenuPages/BiteRushLunchPage/index.html" aria-label="Go back to menu">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="15 18 9 12 15 6"></polyline>
@@ -30,16 +31,10 @@
     <main class="checkout-container">
         <p id="productDetailStatus" role="status" aria-live="polite">Loading dish details…</p>
         <p id="productDetailError" role="alert" hidden></p>
-        <div class="checkout-card item-card" data-product-detail hidden>
+
+        <div class="checkout-card item-card" data-product-detail data-product-detail-content hidden>
             <img class="item-img" alt="">
             <div class="item-details">
-                <button class="favorite-btn product-detail-favorite" type="button"
-                    aria-label="Add this dish to favorites" aria-pressed="false" disabled>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-                    </svg>
-                </button>
                 <h2 class="item-title"></h2>
                 <h3 class="item-subtitle"></h3>
                 <p class="item-description"></p>
@@ -54,10 +49,96 @@
                 </div>
             </div>
         </div>
+
+        <div class="checkout-card summary-card" data-product-detail-content hidden>
+            <div class="summary-header">
+                <h2>Subtotal</h2>
+                <span class="header-amount">&#8369; 0.00</span>
+            </div>
+            <div class="fee-row">
+                <div class="fee-info">
+                    <span class="fee-title">Standard delivery</span>
+                    <span class="fee-subtext">&#8369; 149 more to free delivery</span>
+                </div>
+                <span class="fee-amount">&#8369; 0.00</span>
+            </div>
+            <div class="fee-row">
+                <div class="fee-info">
+                    <span class="fee-title">Delivery fee</span>
+                    <span class="fee-subtext">Fast and reliable delivery</span>
+                </div>
+                <span class="fee-amount">&#8369; 4.00</span>
+            </div>
+            <div class="fee-row">
+                <div class="fee-info flex-center">
+                    <span class="fee-title">Service fee</span>
+                    <button class="info-icon" type="button" aria-label="Service fee info">i</button>
+                </div>
+                <span class="fee-amount">&#8369; 9.00</span>
+            </div>
+            <div class="voucher-section-title"><span>Apply a voucher</span></div>
+            <div class="voucher-list">
+                <label class="voucher-item">
+                    <div class="voucher-ticket">
+                        <div class="voucher-left"><span class="discount">20%</span><span class="off">Off</span></div>
+                        <div class="voucher-right">
+                            <strong>20% off Capped at &#8369;500</strong>
+                            <p>Min. Spend &#8369;249</p>
+                            <p class="validity">Valid till 11/30/25</p>
+                        </div>
+                    </div>
+                    <div class="voucher-radio-wrapper">
+                        <input type="radio" name="voucher" class="voucher-radio">
+                        <span class="custom-radio"></span>
+                    </div>
+                </label>
+                <label class="voucher-item">
+                    <div class="voucher-ticket">
+                        <div class="voucher-left"><span class="discount">15%</span><span class="off">Off</span></div>
+                        <div class="voucher-right">
+                            <strong>15% off Capped at &#8369;600</strong>
+                            <p>Min. Spend &#8369;199</p>
+                            <p class="validity">Valid till 11/30/25</p>
+                        </div>
+                    </div>
+                    <div class="voucher-radio-wrapper">
+                        <input type="radio" name="voucher" class="voucher-radio">
+                        <span class="custom-radio"></span>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <div class="checkout-card total-card" data-product-detail-content hidden>
+            <div class="utensils-row">
+                <div class="utensils-info">
+                    <div class="utensils-title">
+                        <img src="../pics/utensils.png" alt="Utensils Icon" class="utensils-icon">
+                        <span>Utensils</span>
+                    </div>
+                    <p>If Utensils aren't needed. Thanks for reducing waste!</p>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="total-row">
+                <div class="total-label">
+                    <h2>Total</h2>
+                    <span>(Inclu. fees and tax)</span>
+                </div>
+                <span class="total-amount">&#8369; 0.00</span>
+            </div>
+        </div>
+
+        <a class="checkout-link" data-product-detail-content hidden href="../../DeliveryAddress/index.html">
+            <button class="checkout-btn" type="button">Review payment and address</button>
+        </a>
     </main>
     <script src="../../api.js?v=7"></script>
-    <script src="product-detail.js?v=2"></script>
+    <script src="product-detail.js?v=3"></script>
     <script src="../../Cart/cart.js?v=15"></script>
-    <script src="../../favorites-sync.js?v=6"></script>
+    <script src="../../Cart/checkout.js?v=7"></script>
 </body>
 </html>
