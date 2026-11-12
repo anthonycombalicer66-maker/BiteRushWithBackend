@@ -76,7 +76,8 @@
             const priceRow = container.querySelector(
                 '.price-container, .search-result-footer, .item-quantity-price'
             );
-            if (meta) meta.insertAdjacentElement('afterend', link);
+            if (card.classList.contains('food-card') && meta) meta.appendChild(link);
+            else if (meta) meta.insertAdjacentElement('afterend', link);
             else if (priceRow) priceRow.before(link);
             else container.appendChild(link);
         }
