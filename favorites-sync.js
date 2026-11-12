@@ -10,7 +10,7 @@
         const activeUserId = localStorage.getItem('biterush_active_user_id');
         return activeUserId ? `biterush_favorites_${activeUserId}` : 'biterush_favorites_guest';
     };
-    const buttons = [...document.querySelectorAll('.favorite-btn, .search-result-favorite')];
+    const buttons = () => [...document.querySelectorAll('.favorite-btn, .search-result-favorite')];
     let serverFavorites = [];
     let authenticated = false;
     let ready = false;
@@ -75,12 +75,17 @@
             || card?.querySelector('.buy-btn, .search-result-buy')?.closest('a')?.getAttribute('href')
             || local?.link
             || '';
-        return { title: titleFor(button), img: image, path: link };
+        return {
+            title: titleFor(button),
+            img: image,
+            path: link,
+            productId: card?.dataset.productId ? Number(card.dataset.productId) : undefined
+        };
     }
 
     function updateButtons(favorites) {
         const titles = new Set(favorites.map(item => normalizeTitle(item.title)));
-        buttons.forEach(button => {
+        buttons().forEach(button => {
             const title = titleFor(button);
             const active = titles.has(normalizeTitle(title));
             button.classList.toggle('favorited', active);
@@ -150,11 +155,11 @@
         }
         updateButtons(serverFavorites);
         ready = true;
-        buttons.forEach(button => { button.disabled = false; });
+        buttons().forEach(button => { button.disabled = false; });
     }
 
     async function initialize() {
-        buttons.forEach(button => { button.disabled = true; });
+        buttons().forEach(button => { button.disabled = true; });
         try {
             await loadServerFavorites();
         } catch (error) {
@@ -168,7 +173,7 @@
                 authenticated = false;
                 updateButtons([]);
                 ready = true;
-                buttons.forEach(button => { button.disabled = false; });
+                buttons().forEach(button => { button.disabled = false; });
                 return;
             }
             console.error('Unable to load favorites from the database:', error);
@@ -218,6 +223,15 @@
             });
         }, 0);
     }, true);
+
+    window.addEventListener('biterush-cards-rendered', () => {
+        const currentButtons = buttons();
+        currentButtons.forEach(button => { button.disabled = !ready; });
+        updateButtons(authenticated ? serverFavorites : readLocalFavorites());
+    });
+    window.addEventListener('biterush-favorites-updated', () => {
+        updateButtons(readLocalFavorites());
+    });
 
     initialize();
 }());

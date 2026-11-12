@@ -271,7 +271,9 @@
             }
         }
         applyProductSettings();
-        if (!isProjectRootPage) result.products.forEach(appendDatabaseProduct);
+        if (!window.BiteRushSharedFoodCards && !isProjectRootPage) {
+            result.products.forEach(appendDatabaseProduct);
+        }
         cart = cart.map(item => {
             const product = databaseProducts.get(normalizeTitle(item.title));
             return product

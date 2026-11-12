@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="../../Cart/cart.css?v=8">
     <link rel="stylesheet" href="../../darkmode.css">
     <link rel="stylesheet" href="../../BackButtons.css">
+    <link rel="stylesheet" href="../../food-cards.css?v=2">
 </head>
 <body>
 
@@ -460,11 +461,11 @@
             emptyState.hidden = true;
             grid.appendChild(emptyState);
 
-            const cards = [...grid.querySelectorAll('.food-card')];
             const updateResults = () => {
+                if (!emptyState.isConnected) grid.appendChild(emptyState);
                 const query = searchInput.value.trim().toLowerCase();
                 let visible = 0;
-                cards.forEach(card => {
+                grid.querySelectorAll('.food-card').forEach(card => {
                     const matches = !query || card.textContent.toLowerCase().includes(query);
                     card.hidden = !matches;
                     if (matches) visible += 1;
@@ -493,6 +494,7 @@
                 if (event.key === 'Enter') submitSearch();
                 if (event.key === 'Escape') searchButton.click();
             });
+            window.addEventListener('biterush-cards-rendered', updateResults);
             searchInput.addEventListener('keydown', event => {
                 if (event.key === 'Escape') searchButton.click();
             });
@@ -501,5 +503,7 @@
     <script src="../../api.js?v=7"></script>
     <script src="../../Cart/cart.js?v=12"></script>
     <script src="../../favorites-sync.js?v=5"></script>
+    <script src="../../SearchResults/search-results-data.js"></script>
+    <script src="../../food-cards.js?v=1"></script>
 </body>
 </html>

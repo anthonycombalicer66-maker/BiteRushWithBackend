@@ -43,6 +43,7 @@ Use PHP 8.1 or later with MySQL 5.7.8+ or MariaDB 10.2.7+.
 - `api\config.php` contains local database settings and should not be committed or deployed with development credentials.
 - `api\index.php` handles account, cart, order, favorites, feedback, and staff requests using PHP sessions and prepared statements.
 - Customer menu, search, product-detail, and cart pages read current prices, availability, and stock from the MySQL catalog. The initial catalog is seeded by the versioned migration; the admin dashboard can also synchronize later menu edits.
+- Home, menu-category, and search results use the shared `food-cards.js` / `food-cards.css` renderer. Admin product metadata (menu section, description, display-time, calories, tags, availability, and featured status) drives those cards; uploaded product images are validated and saved under `uploads\products\`.
 - Buying from a product detail page checks out that dish only and leaves other cart items untouched. Checkout from the cart drawer submits the full cart.
 - `api\create-staff.php` is a command-line-only helper for creating staff/admin accounts; it does not provide a public web route.
 - Staff can move order statuses forward only, but cannot change delivered or cancelled orders. An admin status change also locks the order from further staff updates; admins can move statuses backward. Cancelled orders remain final.
