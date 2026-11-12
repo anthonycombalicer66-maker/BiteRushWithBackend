@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BiteRush - Search Results</title>
     <link rel="stylesheet" href="SearchResults.css">
-    <link rel="stylesheet" href="../Cart/cart.css">
+    <link rel="stylesheet" href="../Cart/cart.css?v=8">
     <link rel="stylesheet" href="../darkmode.css">
     <link rel="stylesheet" href="../BackButtons.css">
 </head>
@@ -103,10 +103,13 @@
                 </article>
             `).join('');
         }
-        const favoritesKey = 'biterush_favorites';
+        const getFavoritesStorageKey = () => {
+            const activeUserId = localStorage.getItem('biterush_active_user_id');
+            return activeUserId ? `biterush_favorites_${activeUserId}` : 'biterush_favorites_guest';
+        };
         let favorites;
         try {
-            favorites = JSON.parse(localStorage.getItem(favoritesKey) || '[]');
+            favorites = JSON.parse(localStorage.getItem(getFavoritesStorageKey()) || '[]');
             if (!Array.isArray(favorites)) favorites = [];
         } catch (error) {
             console.error('Unable to read saved favorites:', error);
@@ -123,6 +126,7 @@
                 favoriteButton.setAttribute('aria-label', `${active ? 'Remove' : 'Add'} ${dish.title} ${active ? 'from' : 'to'} favorites`);
             };
             favoriteButton.addEventListener('click', () => {
+                favorites = JSON.parse(localStorage.getItem(getFavoritesStorageKey()) || '[]');
                 if (isFavorite()) {
                     favorites = favorites.filter(item => item.title !== dish.title);
                 } else {
@@ -135,12 +139,14 @@
                         link: dish.link
                     });
                 }
-                localStorage.setItem(favoritesKey, JSON.stringify(favorites));
+                localStorage.setItem(getFavoritesStorageKey(), JSON.stringify(favorites));
                 updateFavoriteButton();
             });
             updateFavoriteButton();
         });
     </script>
-    <script src="../Cart/cart.js"></script>
+    <script src="../api.js?v=7"></script>
+    <script src="../Cart/cart.js?v=12"></script>
+    <script src="../favorites-sync.js?v=5"></script>
 </body>
 </html>

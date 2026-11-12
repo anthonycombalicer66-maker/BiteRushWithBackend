@@ -116,7 +116,7 @@
                                 <option value="delivered">Delivered</option>
                                 <option value="cancelled">Cancelled</option>
                             </select>
-                                <button class="table-action-button" id="selectAllOrdersButton" type="button">Select all</button>
+                                <button class="table-action-button" id="selectAllOrdersButton" type="button">Select page</button>
                         </div>
                         <div class="bulk-order-actions" id="bulkOrderActions" hidden>
                                 <strong><span id="selectedOrderCount">0</span> selected</strong>
@@ -279,6 +279,7 @@
                 <label for="auditSearch">Search audit history</label>
                 <input id="auditSearch" type="search" placeholder="Actor, action, entity, or detail">
                 <div class="audit-log" id="auditLog"></div>
+                <div class="pagination" id="auditPagination"></div>
             </section>
 
             <section class="admin-panel" aria-labelledby="feedbackTitle">
@@ -306,6 +307,7 @@
                         <input id="feedbackSearch" type="search" placeholder="Comment, order, or customer">
                     </label>
                 </div>
+                <p class="inline-message" id="feedbackMessage" role="status" aria-live="polite" hidden></p>
                 <div class="feedback-list" id="feedbackList"></div>
             </section>
         </main>
@@ -366,7 +368,8 @@
             </div>
         </form>
     </dialog>
+    <script src="../api.js?v=7"></script>
     <script src="../SearchResults/search-results-data.js"></script>
-    <script src="./dashboard.js" defer></script>
+    <script src="./dashboard.js?v=20261112-delivered-status-final-1" defer></script>
 </body>
 </html>

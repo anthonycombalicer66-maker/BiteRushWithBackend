@@ -1,13 +1,12 @@
 'use strict';
 
-(function () {
-    const sessionKey = 'biterushAdminLoggedIn';
+(async function () {
     const receiptKey = 'biterush_last_order';
     const ordersKey = 'biterush_orders';
     const overridesKey = 'biterush_product_overrides';
     const customProductsKey = 'biterush_custom_products';
     const auditKey = 'biterush_audit_log';
-    const adminIdentityKey = 'biterushAdminIdentity';
+    let feedbackReviews = [];
     const stageLabels = {
         received: 'Order received',
         preparing: 'Preparing',
@@ -17,18 +16,19 @@
     };
     const dashboard = document.getElementById('dashboardView');
 
-    if (localStorage.getItem(sessionKey) !== 'true') {
+    let identity;
+    try {
+        const session = await window.BiteRushApi.request('staff-session');
+        identity = session.staff;
+        const result = await window.BiteRushApi.request('admin-orders', { query: { all: 1 } });
+        localStorage.setItem(ordersKey, JSON.stringify(result.orders));
+    } catch (error) {
+        console.error('Unable to verify dashboard session or load orders:', error);
         window.location.replace('login.html');
         return;
     }
 
     dashboard.hidden = false;
-    let identity = { role: 'Administrator', name: 'Administrator' };
-    try {
-        identity = JSON.parse(localStorage.getItem(adminIdentityKey) || 'null') || identity;
-    } catch (error) {
-        console.error('Unable to read administrator identity:', error);
-    }
     const identityDisplay = document.getElementById('sessionRole');
     if (identityDisplay) identityDisplay.textContent = identity.role || 'Administrator';
     if (String(identity.role || '').toLocaleLowerCase() !== 'admin') {
@@ -52,30 +52,10 @@
             return fallback;
         }
     };
-    const getAuditEntries = () => {
-        const entries = readJSON(auditKey, []);
-        return Array.isArray(entries) ? entries : [];
-    };
-    const addAuditEntry = (action, entity, details = '') => {
-        const entries = getAuditEntries();
-        entries.unshift({
-            id: window.crypto?.randomUUID
-                ? window.crypto.randomUUID()
-                : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            at: new Date().toISOString(),
-            actor: identity.name || identity.username || 'Administrator',
-            role: identity.role || 'Administrator',
-            action,
-            entity,
-            details
-        });
-        try {
-            localStorage.setItem(auditKey, JSON.stringify(entries.slice(0, 500)));
-            renderAuditLog();
-        } catch (error) {
-            console.error('Unable to save audit log:', error);
-        }
-    };
+    let auditEntries = [];
+    let auditPage = 1;
+    let auditPages = 1;
+    const getAuditEntries = () => auditEntries;
     const money = value => `₱${(Number(value) || 0).toFixed(2)}`;
     const normalizeTitle = title => String(title || '').trim().toLocaleLowerCase();
     const getOrders = () => {
@@ -102,6 +82,9 @@
     let selectedOrderId = null;
     let selectedOrderIds = new Set();
     let ordersPage = 1;
+    let orderListPages = 1;
+    let visibleOrderRows = [];
+    let orderListRequest = 0;
     let orders = getOrders();
     const knownOrderIds = new Set(orders.map(order => order.id));
     const ordersList = document.getElementById('ordersList');
@@ -431,30 +414,34 @@
     }
 
     function renderOrderList() {
-        const query = searchInput.value.trim().toLocaleLowerCase();
-        const status = filterInput.value;
-        const filtered = orders.filter(order => {
-            const orderStatus = stageLabels[order.status] ? order.status : 'received';
-            const searchable = `${order.id} ${order.address || ''} ${(order.items || []).map(item => item.title).join(' ')}`
-                .toLocaleLowerCase();
-            return (status === 'all' || orderStatus === status) && searchable.includes(query);
-        });
-        document.getElementById('orderCount').textContent =
-            `${filtered.length} ${filtered.length === 1 ? 'order' : 'orders'}`;
-        ordersList.replaceChildren();
-        if (filtered.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'empty-panel';
-            empty.textContent = orders.length ? 'No orders match these filters.' : 'No orders have been placed in this browser yet.';
-            ordersList.appendChild(empty);
-            return;
-        }
-
-        const pageSize = 10;
-        const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-        ordersPage = Math.min(ordersPage, pageCount);
-        const visible = filtered.slice((ordersPage - 1) * pageSize, ordersPage * pageSize);
-        visible.forEach(order => {
+        const requestId = ++orderListRequest;
+        const status = filterInput.value === 'all' ? '' : filterInput.value;
+        const query = searchInput.value.trim();
+        window.BiteRushApi.request('admin-orders', {
+            query: { page: ordersPage, pageSize: 10, status, q: query }
+        }).then(result => {
+            if (requestId !== orderListRequest) return;
+            if (!Array.isArray(result.orders) || !result.pagination
+                || !Number.isInteger(result.pagination.page) || !Number.isInteger(result.pagination.pages)) {
+                throw new Error('The orders response is invalid.');
+            }
+            visibleOrderRows = result.orders;
+            ordersPage = result.pagination.page;
+            orderListPages = result.pagination.pages;
+            const refreshed = new Map(result.orders.map(order => [order.id, order]));
+            orders = orders.map(order => refreshed.has(order.id) ? { ...order, ...refreshed.get(order.id) } : order);
+            document.getElementById('orderCount').textContent =
+                `${result.pagination.total} ${result.pagination.total === 1 ? 'order' : 'orders'}`;
+            ordersList.replaceChildren();
+            if (!visibleOrderRows.length) {
+                const empty = document.createElement('p');
+                empty.className = 'empty-panel';
+                empty.textContent = result.pagination.total ? 'No orders match these filters.' : 'No orders have been placed yet.';
+                ordersList.appendChild(empty);
+                document.getElementById('ordersPagination').replaceChildren();
+                return;
+            }
+            visibleOrderRows.forEach(order => {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'admin-order-row';
@@ -490,20 +477,40 @@
                 renderOrderDetail();
             });
             ordersList.appendChild(button);
-        });
-        const pagination = document.getElementById('ordersPagination');
-        pagination.replaceChildren();
-        for (let page = 1; page <= pageCount; page += 1) {
-            const pageButton = document.createElement('button');
-            pageButton.type = 'button';
-            pageButton.textContent = String(page);
-            pageButton.setAttribute('aria-current', page === ordersPage ? 'page' : 'false');
-            pageButton.addEventListener('click', () => {
-                ordersPage = page;
+            });
+            const pagination = document.getElementById('ordersPagination');
+            pagination.replaceChildren();
+            if (orderListPages <= 1) return;
+            const previous = document.createElement('button');
+            previous.type = 'button';
+            previous.className = 'pagination-button';
+            previous.textContent = 'Previous';
+            previous.disabled = ordersPage <= 1;
+            previous.addEventListener('click', () => {
+                ordersPage -= 1;
                 renderOrderList();
             });
-            pagination.appendChild(pageButton);
-        }
+            const pageStatus = document.createElement('span');
+            pageStatus.textContent = `Page ${ordersPage} of ${orderListPages}`;
+            const next = document.createElement('button');
+            next.type = 'button';
+            next.className = 'pagination-button';
+            next.textContent = 'Next';
+            next.disabled = ordersPage >= orderListPages;
+            next.addEventListener('click', () => {
+                ordersPage += 1;
+                renderOrderList();
+            });
+            pagination.append(previous, pageStatus, next);
+        }).catch(error => {
+            if (requestId !== orderListRequest) return;
+            console.error('Unable to load the filtered order page:', error);
+            ordersList.replaceChildren();
+            const message = document.createElement('p');
+            message.className = 'empty-panel';
+            message.textContent = `Orders could not be loaded: ${error.message}`;
+            ordersList.appendChild(message);
+        });
     }
 
     function renderOrderDetail() {
@@ -563,20 +570,29 @@
         statusLabel.textContent = 'Order status';
         const statusSelect = document.createElement('select');
         statusSelect.id = 'selectedOrderStatus';
-        Object.entries(stageLabels).filter(([value]) => value !== 'cancelled').forEach(([value, label]) => {
+        const orderStages = ['received', 'preparing', 'on_the_way', 'delivered'];
+        const currentStageIndex = orderStages.indexOf(order.status);
+        const isAdmin = String(identity.role || '').toLocaleLowerCase() === 'admin';
+        const statusFinalized = order.status === 'delivered' || order.status === 'cancelled';
+        (isAdmin ? orderStages : orderStages.slice(Math.max(0, currentStageIndex))).forEach(value => {
             const option = document.createElement('option');
             option.value = value;
-            option.textContent = label;
+            option.textContent = stageLabels[value];
             statusSelect.appendChild(option);
         });
         statusSelect.value = stageLabels[order.status] ? order.status : 'received';
-        statusSelect.disabled = order.status === 'cancelled';
+        const statusLockedForStaff = identity.role !== 'admin' && order.adminStatusLocked;
+        const noFurtherStagesForStaff = !isAdmin && currentStageIndex === orderStages.length - 1;
+        statusSelect.disabled = statusFinalized || statusLockedForStaff || noFurtherStagesForStaff;
         const save = document.createElement('button');
         save.type = 'button';
         save.className = 'admin-primary-button';
         save.textContent = 'Save status';
-        save.disabled = order.status === 'cancelled';
+        save.disabled = statusFinalized || statusLockedForStaff || noFurtherStagesForStaff;
         save.addEventListener('click', () => saveOrderStatus(order.id, statusSelect.value));
+        const statusNotice = document.createElement('p');
+        statusNotice.className = 'detail-timestamp';
+        statusNotice.textContent = 'Delivered orders are final. Their status cannot be changed.';
 
         const actions = document.createElement('div');
         actions.className = 'order-action-buttons';
@@ -702,7 +718,6 @@
                     latest.refundAmount = order.refundAmount;
                     localStorage.setItem(receiptKey, JSON.stringify(latest));
                 }
-                addAuditEntry('update', `order ${order.id}`, refund > 0 ? `Refund ${money(refund)} recorded` : 'Delivery details updated');
                 showAdminMessage('Delivery and refund details saved.');
                 renderOrderDetail();
             } catch (error) {
@@ -710,12 +725,13 @@
                 showAdminMessage('Delivery details could not be saved.');
             }
         });
-        const isAdmin = String(identity.role || '').toLocaleLowerCase() === 'admin';
         if (isAdmin) {
-            orderDetail.append(title, created, items, details, statusLabel, statusSelect, save, actions,
+            orderDetail.append(title, created, items, details, statusLabel,
+                ...(order.status === 'delivered' ? [statusNotice] : []), statusSelect, save, actions,
                 etaField, staffField, refundField, saveExtras);
         } else {
-            orderDetail.append(title, created, items, details, statusLabel, statusSelect, save, actions,
+            orderDetail.append(title, created, items, details, statusLabel,
+                ...(order.status === 'delivered' ? [statusNotice] : []), statusSelect, save, actions,
                 etaField, staffField);
         }
     }
@@ -726,20 +742,36 @@
         notice.hidden = false;
     }
 
-    function saveOrderStatus(orderId, status) {
+    async function saveOrderStatus(orderId, status) {
         const order = orders.find(entry => entry.id === orderId);
-        if (!order || order.status === 'cancelled' || !stageLabels[status]) return;
-        if (order.status === 'delivered' && status !== 'delivered') {
-            window.alert('Delivered orders cannot be moved back to an earlier status.');
+        if (!order || order.status === 'delivered' || order.status === 'cancelled' || !stageLabels[status]
+            || (identity.role !== 'admin' && order.adminStatusLocked)) return;
+        const orderStages = ['received', 'preparing', 'on_the_way', 'delivered'];
+        if (identity.role !== 'admin' && status !== 'cancelled'
+            && orderStages.indexOf(status) < orderStages.indexOf(order.status)) {
+            window.alert('Staff can only move order status forward.');
             return;
         }
         const previousStatus = order.status;
+        try {
+            await window.BiteRushApi.request('order-status', {
+                method: 'PATCH',
+                body: { id: orderId, status }
+            });
+        } catch (error) {
+            console.error('Unable to update order status on the server:', error);
+            window.alert(error.message || 'The order status could not be saved.');
+            return;
+        }
         const previousUpdatedAt = order.updatedAt;
         const previousCancellationReason = order.cancellationReason;
         const previousHistory = localStorage.getItem(ordersKey);
         const previousReceipt = localStorage.getItem(receiptKey);
         order.status = status;
         order.updatedAt = new Date().toISOString();
+        if (identity.role === 'admin' && previousStatus !== status) {
+            order.adminStatusLocked = true;
+        }
         try {
             localStorage.setItem(ordersKey, JSON.stringify(orders));
             const latest = readJSON(receiptKey, null);
@@ -769,7 +801,6 @@
             renderOrderDetail();
             return;
         }
-        addAuditEntry('status update', orderId, `${stageLabels[previousStatus] || previousStatus} to ${stageLabels[status]}`);
         orders = getOrders();
         renderMetrics();
         renderOrderList();
@@ -777,15 +808,23 @@
         renderSalesReport();
     }
 
-    searchInput.addEventListener('input', renderOrderList);
-    filterInput.addEventListener('change', renderOrderList);
+    let orderSearchTimer;
+    searchInput.addEventListener('input', () => {
+        window.clearTimeout(orderSearchTimer);
+        ordersPage = 1;
+        orderSearchTimer = window.setTimeout(renderOrderList, 250);
+    });
+    filterInput.addEventListener('change', () => {
+        ordersPage = 1;
+        renderOrderList();
+    });
     function updateBulkOrderControls() {
         const count = selectedOrderIds.size;
         document.getElementById('selectedOrderCount').textContent = String(count);
         document.getElementById('bulkOrderActions').hidden = count === 0;
     }
     document.getElementById('selectAllOrdersButton').addEventListener('click', () => {
-        orders.forEach(order => selectedOrderIds.add(order.id));
+        visibleOrderRows.forEach(order => selectedOrderIds.add(order.id));
         updateBulkOrderControls();
         renderOrderList();
     });
@@ -799,7 +838,6 @@
         const ids = [...selectedOrderIds];
         if (!ids.length) return;
         ids.forEach(id => saveOrderStatus(id, status));
-        addAuditEntry('bulk update', `${ids.length} orders`, `Status changed to ${stageLabels[status]}`);
         selectedOrderIds.clear();
         updateBulkOrderControls();
         renderOrderList();
@@ -960,7 +998,6 @@
         link.download = `biterush-report-${reportStart.value}-${reportEnd.value}.csv`;
         link.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-        addAuditEntry('export', 'sales report', `${included.length} orders exported`);
     });
 
     const dishRecords = Array.isArray(window.BITERUSH_DISHES) ? window.BITERUSH_DISHES : [];
@@ -972,6 +1009,7 @@
         if (title && !defaultProducts.has(key) && match) {
             defaultProducts.set(key, {
                 title,
+                sourceKey: key,
                 price: Number(match[1]),
                 category: dish.category || dish.menu || 'Menu',
                 description: dish.description || '',
@@ -983,17 +1021,256 @@
     if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) overrides = {};
     let customProducts = readJSON(customProductsKey, []);
     if (!Array.isArray(customProducts)) customProducts = [];
+    const removeDuplicateCustomProducts = () => {
+        const seenTitles = new Set(defaultProducts.keys());
+        const uniqueProducts = [];
+        customProducts.forEach(product => {
+            const key = normalizeTitle(product && product.title);
+            if (!key || seenTitles.has(key)) return;
+            seenTitles.add(key);
+            uniqueProducts.push(product);
+        });
+        customProducts = uniqueProducts;
+    };
+    const uniqueCatalogProducts = () => {
+        const seenTitles = new Set();
+        return [...defaultProducts.values(), ...customProducts].filter(product => {
+            const key = normalizeTitle(product && product.title);
+            if (!key || seenTitles.has(key)) return false;
+            seenTitles.add(key);
+            return true;
+        });
+    };
+    removeDuplicateCustomProducts();
     const productSearch = document.getElementById('productSearch');
     const productsList = document.getElementById('productsList');
     const productMessage = document.getElementById('productMessage');
+    let databaseProducts = [];
+    let productCatalogReady = false;
+    let productSaveQueue = Promise.resolve();
+    const catalogPayload = () => {
+        const products = uniqueCatalogProducts();
+        const payload = products.map(product => {
+            const key = normalizeTitle(product.title);
+            const override = overrides[key] || {};
+            const deleted = product.deleted === true || override.deleted === true;
+            const stock = override.stock ?? product.stock;
+            const image = override.image || product.image || '';
+            const sourceKey = product.sourceKey || product.id || normalizeTitle(product.title);
+            const rawId = Number(product.databaseId ?? product.id);
+            const databaseRecord = (Number.isSafeInteger(rawId) && rawId > 0
+                ? databaseProducts.find(saved => Number(saved.id) === rawId)
+                : null) || databaseProducts.find(saved =>
+                saved.sourceKey === sourceKey
+                || normalizeTitle(saved.title) === normalizeTitle(override.title || product.title)
+            );
+            const databaseId = databaseRecord?.id
+                || (Number.isSafeInteger(rawId) && rawId > 0 ? rawId : null);
+            const metadata = {
+                ...(product.metadata || {}),
+                featured: override.featured ?? product.featured ?? product.metadata?.featured,
+                prepTime: override.prepTime ?? product.prepTime ?? product.metadata?.prepTime,
+                barcode: override.barcode ?? product.barcode ?? product.metadata?.barcode,
+                cost: override.cost ?? product.cost ?? product.metadata?.cost,
+                lowStockThreshold: override.lowStockThreshold ?? product.lowStockThreshold ?? product.metadata?.lowStockThreshold,
+                lifecycle: override.lifecycle ?? product.lifecycle ?? product.metadata?.lifecycle,
+                allergens: override.allergens ?? product.allergens ?? product.metadata?.allergens,
+                tags: override.tags ?? product.tags ?? product.metadata?.tags,
+                variants: override.variants ?? product.variants ?? product.metadata?.variants,
+                addons: override.addons ?? product.addons ?? product.metadata?.addons,
+                notes: override.notes ?? product.notes ?? product.metadata?.notes,
+                scheduleStart: override.scheduleStart ?? product.scheduleStart ?? product.metadata?.scheduleStart,
+                scheduleEnd: override.scheduleEnd ?? product.scheduleEnd ?? product.metadata?.scheduleEnd
+            };
+            Object.keys(metadata).forEach(field => {
+                if (metadata[field] === undefined || metadata[field] === '') delete metadata[field];
+            });
+            return {
+                id: databaseId,
+                sourceKey,
+                expectedUpdatedAt: databaseRecord?.updatedAt || null,
+                title: override.title || product.title,
+                sku: override.sku ?? product.sku ?? '',
+                category: override.category || product.category || 'Menu',
+                description: override.description ?? product.description ?? '',
+                image: image ? new URL(image, new URL('../SearchResults/', window.location.href)).href : '',
+                price: Number(override.price ?? product.price),
+                stock: stock === undefined || stock === '' ? null : stock,
+                available: !deleted && override.available !== false,
+                deleted,
+                metadata
+            };
+        }).filter(product => product.title && Number.isFinite(product.price) && product.price > 0);
+
+        databaseProducts.forEach(product => {
+            if (!payload.some(current => (product.id && current.id === product.id)
+                || current.sourceKey === product.sourceKey
+                || normalizeTitle(current.title) === normalizeTitle(product.title))) {
+                payload.push({ ...product, available: false, deleted: true });
+            }
+        });
+        return payload;
+    };
+    const persistProductCatalog = () => {
+        productSaveQueue = productSaveQueue.then(async () => {
+            const payload = catalogPayload();
+            const findExisting = product => databaseProducts.find(saved =>
+                (product.id && Number(saved.id) === Number(product.id))
+                || saved.sourceKey === product.sourceKey
+                || normalizeTitle(saved.title) === normalizeTitle(product.title)
+            );
+            const stableJson = value => {
+                const normalize = item => Array.isArray(item)
+                    ? item.map(normalize)
+                    : item && typeof item === 'object'
+                        ? Object.keys(item).sort().reduce((result, key) => {
+                            result[key] = normalize(item[key]);
+                            return result;
+                        }, {})
+                        : item;
+                return JSON.stringify(normalize(value || {}));
+            };
+            const equivalent = (first, second) => first && second
+                && first.title === second.title && first.sku === second.sku
+                && first.sourceKey === second.sourceKey
+                && first.category === second.category && first.description === second.description
+                && first.image === second.image && Number(first.price) === Number(second.price)
+                && (first.stock ?? null) === (second.stock ?? null)
+                && Boolean(first.available) === Boolean(second.available)
+                && Boolean(first.deleted) === Boolean(second.deleted)
+                && stableJson(first.metadata) === stableJson(second.metadata);
+            const changed = payload.filter(product => !equivalent(product, findExisting(product)));
+            if (!changed.length) {
+                const undoAvailability = await window.BiteRushApi.request('product-undo');
+                serverUndoAvailable = undoAvailability.available === true;
+                updateUndoButton();
+                return;
+            }
+            const result = await window.BiteRushApi.request('products', {
+                method: 'PUT',
+                body: { products: changed }
+            });
+            (result.products || []).forEach(saved => {
+                const key = normalizeTitle(saved.title);
+                const defaultEntry = [...defaultProducts.entries()].find(([defaultKey, product]) =>
+                    defaultKey === key || product.sourceKey === saved.sourceKey
+                        || (product.id && Number(product.id) === Number(saved.id))
+                );
+                if (defaultEntry) {
+                    defaultProducts.delete(defaultEntry[0]);
+                    defaultProducts.set(key, { ...defaultEntry[1], ...saved });
+                    if (defaultEntry[0] !== key) delete overrides[defaultEntry[0]];
+                    overrides[key] = { ...(overrides[key] || {}), ...saved };
+                }
+                const customIndex = customProducts.findIndex(product =>
+                    (saved.id && Number(product.databaseId ?? product.id) === Number(saved.id))
+                    || product.sourceKey === saved.sourceKey
+                    || normalizeTitle(product.title) === key
+                );
+                if (customIndex !== -1) customProducts[customIndex] = { ...customProducts[customIndex], ...saved };
+                const previousIndex = databaseProducts.findIndex(product =>
+                    (saved.id && Number(product.id) === Number(saved.id))
+                    || product.sourceKey === saved.sourceKey
+                    || normalizeTitle(product.title) === key
+                );
+                if (previousIndex === -1) databaseProducts.push(saved);
+                else databaseProducts[previousIndex] = saved;
+            });
+            localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
+            productMessage.textContent = 'Menu changes saved to the database.';
+            productMessage.hidden = false;
+            const undoAvailability = await window.BiteRushApi.request('product-undo');
+            serverUndoAvailable = undoAvailability.available === true;
+            updateUndoButton();
+        }).catch(error => {
+            console.error('Unable to save the menu catalog to MySQL:', error);
+            productMessage.textContent = `Menu changes could not be saved to MySQL: ${error.message}`;
+            productMessage.hidden = false;
+        });
+        return productSaveQueue;
+    };
+    const loadProductCatalog = async () => {
+        if (String(identity.role || '').toLocaleLowerCase() !== 'admin') return;
+        try {
+            const result = await window.BiteRushApi.request('admin-products');
+            databaseProducts = result.products;
+            const serverIds = new Set(databaseProducts.map(product => Number(product.id)));
+            customProducts = customProducts.filter(product => {
+                const id = Number(product.id);
+                return !Number.isSafeInteger(id) || id < 1 || serverIds.has(id)
+                    || databaseProducts.some(saved =>
+                        saved.sourceKey === product.sourceKey
+                        || normalizeTitle(saved.title) === normalizeTitle(product.title)
+                    );
+            });
+            databaseProducts.forEach(product => {
+                const key = normalizeTitle(product.title);
+                const databaseFields = {
+                    id: product.id,
+                    sourceKey: product.sourceKey,
+                    title: product.title,
+                    category: product.category,
+                    description: product.description,
+                    image: product.image,
+                    price: product.price,
+                    sku: product.sku,
+                    stock: product.stock,
+                    available: product.available,
+                    deleted: product.deleted,
+                    updatedAt: product.updatedAt,
+                    metadata: product.metadata || {},
+                    ...product.metadata
+                };
+                const defaultEntry = [...defaultProducts.entries()].find(([defaultKey, defaultProduct]) =>
+                    defaultKey === key || defaultProduct.sourceKey === product.sourceKey
+                        || (defaultProduct.id && Number(defaultProduct.id) === Number(product.id))
+                );
+                if (defaultEntry) {
+                    defaultProducts.delete(defaultEntry[0]);
+                    defaultProducts.set(key, { ...defaultEntry[1], ...databaseFields });
+                    overrides[key] = { ...(overrides[defaultEntry[0]] || {}), ...databaseFields };
+                    if (defaultEntry[0] !== key) delete overrides[defaultEntry[0]];
+                    return;
+                }
+                const customIndex = customProducts.findIndex(item =>
+                    normalizeTitle(item.title) === key || item.sourceKey === product.sourceKey
+                        || Number(item.id) === Number(product.id)
+                );
+                if (customIndex === -1) {
+                    customProducts.push({ id: product.id, title: product.title, ...databaseFields });
+                } else {
+                    customProducts[customIndex] = { ...customProducts[customIndex], ...databaseFields };
+                }
+            });
+            removeDuplicateCustomProducts();
+            localStorage.setItem(overridesKey, JSON.stringify(overrides));
+            localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
+            productCatalogReady = true;
+            await persistProductCatalog();
+            const undoAvailability = await window.BiteRushApi.request('product-undo');
+            serverUndoAvailable = undoAvailability.available === true;
+            updateUndoButton();
+        } catch (error) {
+            console.error('Unable to load the menu catalog from MySQL:', error);
+            productCatalogReady = false;
+            productMessage.textContent = `Menu catalog could not be loaded from MySQL: ${error.message}`;
+            productMessage.hidden = false;
+        }
+    };
+    window.addEventListener('biterush-menu-updated', () => {
+        if (productCatalogReady && String(identity.role || '').toLocaleLowerCase() === 'admin') {
+            persistProductCatalog();
+        }
+    });
     const selectedProductKeys = new Set();
     let productsPage = 1;
     const productsPerPage = 10;
     const undoKey = 'biterush_product_undo';
     const undoButton = document.getElementById('undoProductButton');
+    let serverUndoAvailable = false;
     const readUndo = () => readJSON(undoKey, null);
     const updateUndoButton = () => {
-        undoButton.disabled = !readUndo();
+        undoButton.disabled = !readUndo() && !serverUndoAvailable;
     };
     const saveUndoSnapshot = () => {
         try {
@@ -1002,12 +1279,37 @@
             return true;
         } catch (error) {
             console.error('Unable to save menu undo snapshot:', error);
+            if (productCatalogReady && String(identity.role || '').toLocaleLowerCase() === 'admin') {
+                productMessage.textContent = 'Browser undo could not be saved; database undo will be available after the change syncs.';
+                productMessage.hidden = false;
+                return true;
+            }
             productMessage.textContent = 'Could not save an undo point, so the menu change was not made.';
             productMessage.hidden = false;
             return false;
         }
     };
     undoButton.addEventListener('click', () => {
+        if (String(identity.role || '').toLocaleLowerCase() === 'admin' && productCatalogReady) {
+            undoButton.disabled = true;
+            window.BiteRushApi.request('product-undo', { method: 'POST', body: {} })
+                .then(async result => {
+                    localStorage.removeItem(undoKey);
+                    await loadProductCatalog();
+                    const availability = await window.BiteRushApi.request('product-undo');
+                    serverUndoAvailable = availability.available === true;
+                    updateUndoButton();
+                    productMessage.textContent = result.message;
+                    productMessage.hidden = false;
+                })
+                .catch(error => {
+                    console.error('Unable to undo the database product change:', error);
+                    productMessage.textContent = error.message || 'The product change could not be undone.';
+                    productMessage.hidden = false;
+                    updateUndoButton();
+                });
+            return;
+        }
         const previous = readUndo();
         if (!previous || !Array.isArray(previous.customProducts)
             || !previous.overrides || typeof previous.overrides !== 'object') return;
@@ -1047,7 +1349,7 @@
         const stockFilter = document.getElementById('productStockFilter')?.value || 'all';
         const lifecycleFilter = document.getElementById('productLifecycleFilter')?.value || 'all';
         productsList.replaceChildren();
-        const products = [...defaultProducts.values(), ...customProducts]
+        const products = uniqueCatalogProducts()
             .filter(product => normalizeTitle(product.title).includes(query))
             .filter(product => {
                 const key = normalizeTitle(product.title);
@@ -1275,12 +1577,12 @@
                 if (image) {
                     try {
                         const parsedImage = new URL(image, window.location.href);
-                        if (!['http:', 'https:', 'file:'].includes(parsedImage.protocol)) {
+                        if (!['http:', 'https:', 'data:'].includes(parsedImage.protocol)) {
                             throw new Error('Unsupported image URL protocol.');
                         }
                         normalizedImage = parsedImage.href;
                     } catch (error) {
-                        productMessage.textContent = 'Use a valid HTTP, HTTPS, or local image URL.';
+                        productMessage.textContent = 'Use an HTTP, HTTPS, or supported uploaded image.';
                         productMessage.hidden = false;
                         imageInput.focus();
                         return;
@@ -1309,7 +1611,6 @@
                     localStorage.setItem(overridesKey, JSON.stringify(overrides));
                     productMessage.textContent = `${product.title} updated. Matching items use this title-wide setting.`;
                     productMessage.hidden = false;
-                    addAuditEntry('update', product.title, `Price ${money(price)}, stock ${stockInput.value}, availability ${availableInput.checked ? 'available' : 'unavailable'}`);
                     window.dispatchEvent(new Event('biterush-menu-updated'));
                 } catch (error) {
                     console.error('Unable to save product settings:', error);
@@ -1365,7 +1666,6 @@
                         }
                         productMessage.textContent = `${product.title} ${deleted ? 'restored to the menu' : 'moved to the recycle bin'}.`;
                         productMessage.hidden = false;
-                        addAuditEntry(deleted ? 'restore' : 'recycle', product.title, action);
                         renderProducts();
                         window.dispatchEvent(new Event('biterush-menu-updated'));
                     } catch (error) {
@@ -1503,7 +1803,6 @@
             });
             localStorage.setItem(revisionsKey, JSON.stringify(revisions.slice(0, 100)));
             localStorage.removeItem(productDraftKey);
-            addAuditEntry('bulk menu update', `${selectedProductKeys.size} products`, labels[mode]);
             selectedProductKeys.clear();
             updateBulkProductControls();
             renderProducts();
@@ -1566,7 +1865,6 @@
         try {
             localStorage.setItem(overridesKey, JSON.stringify(overrides));
             localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
-            addAuditEntry('bulk menu update', `${selectedProductKeys.size} products`, `Bulk ${field} changed`);
             selectedProductKeys.clear();
             updateBulkProductControls();
             renderProducts();
@@ -1848,7 +2146,6 @@
             localStorage.setItem(overridesKey, JSON.stringify(overrides));
             localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
             productEditorDirty = false;
-            addAuditEntry('update', name, `Product editor saved ${money(price)}`);
             productEditDialog.close();
             renderProducts();
             window.dispatchEvent(new Event('biterush-menu-updated'));
@@ -1865,14 +2162,29 @@
         }
     });
 
-    function permanentlyDeleteProduct(product, key) {
-        if (!window.confirm(`Permanently delete "${product.title}"? This cannot be undone.`)) return;
+    async function permanentlyDeleteProduct(product, key) {
+        if (!window.confirm(`Permanently delete "${product.title}" from the catalog? Items linked to order history cannot be deleted.`)) return;
         if (!saveUndoSnapshot()) return;
         const previous = localStorage.getItem(customProductsKey);
+        const existingProduct = customProducts.find(item => normalizeTitle(item.title) === key);
+        if (productCatalogReady && existingProduct?.id) {
+            try {
+                await productSaveQueue;
+                await window.BiteRushApi.request('product', {
+                    method: 'DELETE',
+                    body: { id: existingProduct.id }
+                });
+                databaseProducts = databaseProducts.filter(item => Number(item.id) !== Number(existingProduct.id));
+            } catch (error) {
+                console.error('Unable to permanently delete product from the database:', error);
+                productMessage.textContent = error.message || 'The product could not be permanently deleted.';
+                productMessage.hidden = false;
+                return;
+            }
+        }
         customProducts = customProducts.filter(item => normalizeTitle(item.title) !== key);
         try {
             localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
-            addAuditEntry('permanent delete', product.title, 'Custom product permanently deleted');
             renderProducts();
             window.dispatchEvent(new Event('biterush-menu-updated'));
             productMessage.textContent = `${product.title} permanently deleted.`;
@@ -1887,7 +2199,7 @@
 
     const csvEscape = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
     document.getElementById('exportMenuCsv').addEventListener('click', () => {
-        const products = [...defaultProducts.values(), ...customProducts]
+        const products = uniqueCatalogProducts()
             .filter(product => product.deleted !== true);
         const rows = [
             ['id', 'name', 'category', 'description', 'price', 'available', 'stock', 'prepTime', 'sku', 'barcode', 'cost', 'lowStockThreshold', 'lifecycle', 'allergens', 'tags', 'notes', 'scheduleStart', 'scheduleEnd', 'image'],
@@ -1924,7 +2236,6 @@
         link.download = `biterush-menu-${new Date().toISOString().slice(0, 10)}.csv`;
         link.click();
         URL.revokeObjectURL(url);
-        addAuditEntry('export', 'menu CSV', `${products.length} products exported`);
     });
 
     document.getElementById('importMenuCsv').addEventListener('change', async event => {
@@ -2004,7 +2315,6 @@
             });
             localStorage.setItem(overridesKey, JSON.stringify(overrides));
             localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
-            addAuditEntry('import', 'menu CSV', `${imported} products imported`);
             renderProducts();
             window.dispatchEvent(new Event('biterush-menu-updated'));
             productMessage.textContent = `${imported} menu product(s) imported.`;
@@ -2019,7 +2329,7 @@
     });
 
     document.getElementById('printMenuButton').addEventListener('click', () => {
-        const printable = [...defaultProducts.values(), ...customProducts]
+        const printable = uniqueCatalogProducts()
             .filter(product => product.deleted !== true)
             .map(product => {
                 const key = normalizeTitle(product.title);
@@ -2044,7 +2354,6 @@
         printWindow.document.close();
         printWindow.focus();
         printWindow.print();
-        addAuditEntry('export', 'print menu', `${printable.length} products printed`);
     });
 
     document.getElementById('addProductForm').addEventListener('submit', event => {
@@ -2092,10 +2401,10 @@
         if (image) {
             try {
                 const parsedImage = new URL(image, window.location.href);
-                if (!['http:', 'https:', 'file:'].includes(parsedImage.protocol)) throw new Error('Unsupported image URL protocol.');
+                if (!['http:', 'https:', 'data:'].includes(parsedImage.protocol)) throw new Error('Unsupported image URL protocol.');
                 image = parsedImage.href;
             } catch (error) {
-                productMessage.textContent = 'Enter a valid HTTP, HTTPS, or local image URL.';
+                productMessage.textContent = 'Enter an HTTP, HTTPS, or supported uploaded image.';
                 productMessage.hidden = false;
                 imageInput.focus();
                 return;
@@ -2126,7 +2435,6 @@
             localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
             productMessage.textContent = `${title} added to the featured menu on this browser.`;
             productMessage.hidden = false;
-            addAuditEntry('create', title, `Price ${money(price)}, stock ${stock === null ? 'unlimited' : stock}, SKU ${sku || 'none'}`);
             event.currentTarget.reset();
             renderProducts();
             window.dispatchEvent(new Event('biterush-menu-updated'));
@@ -2144,48 +2452,22 @@
         }
     });
 
-    function saveFeedbackChanges(order) {
-        try {
-            const history = readJSON(ordersKey, []);
-            if (Array.isArray(history)) {
-                const index = history.findIndex(entry => entry.id === order.id);
-                if (index !== -1) history[index].feedback = order.feedback;
-                localStorage.setItem(ordersKey, JSON.stringify(history));
-            }
-            const latest = readJSON(receiptKey, null);
-            if (latest && latest.id === order.id) {
-                latest.feedback = order.feedback;
-                localStorage.setItem(receiptKey, JSON.stringify(latest));
-            }
-            orders = getOrders();
-        } catch (error) {
-            console.error('Unable to save feedback changes:', error);
-            window.alert('The feedback change could not be saved.');
-        }
-    }
-
     function renderAuditLog() {
         const container = document.getElementById('auditLog');
         if (!container) return;
         container.replaceChildren();
-        const query = String(document.getElementById('auditSearch')?.value || '').trim().toLocaleLowerCase();
-        const entries = getAuditEntries().filter(entry => {
-            if (!query) return true;
-            return [entry.actor, entry.role, entry.action, entry.entity, entry.details]
-                .some(value => String(value || '').toLocaleLowerCase().includes(query));
-        });
+        const entries = getAuditEntries();
         if (!entries.length) {
             const empty = document.createElement('p');
             empty.className = 'empty-panel';
-            empty.textContent = 'No administrative changes recorded yet.';
+            empty.textContent = 'No audit entries match this search.';
             container.appendChild(empty);
-            return;
-        }
-        entries.slice(0, 100).forEach(entry => {
+        } else entries.forEach(entry => {
             const row = document.createElement('div');
             row.className = 'audit-entry';
             const time = document.createElement('time');
-            time.textContent = entry.at ? new Date(entry.at).toLocaleString() : 'Unknown time';
+            const timestamp = entry.at || entry.created_at;
+            time.textContent = timestamp ? new Date(timestamp).toLocaleString() : 'Unknown time';
             const action = document.createElement('strong');
             action.textContent = entry.action || 'change';
             const detail = document.createElement('span');
@@ -2193,15 +2475,90 @@
             row.append(time, action, detail);
             container.appendChild(row);
         });
+        const pagination = document.getElementById('auditPagination');
+        if (!pagination) return;
+        pagination.replaceChildren();
+        if (auditPages <= 1) return;
+        const status = document.createElement('span');
+        status.textContent = `Page ${auditPage} of ${auditPages}`;
+        const previous = document.createElement('button');
+        previous.type = 'button';
+        previous.className = 'pagination-button';
+        previous.textContent = 'Previous';
+        previous.disabled = auditPage <= 1;
+        previous.addEventListener('click', () => {
+            auditPage -= 1;
+            loadAuditLog().catch(handleAuditLoadError);
+        });
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.className = 'pagination-button';
+        next.textContent = 'Next';
+        next.disabled = auditPage >= auditPages;
+        next.addEventListener('click', () => {
+            auditPage += 1;
+            loadAuditLog().catch(handleAuditLoadError);
+        });
+        pagination.append(previous, status, next);
     }
 
-    document.getElementById('exportAuditButton')?.addEventListener('click', () => {
-        const query = String(document.getElementById('auditSearch')?.value || '').trim().toLocaleLowerCase();
-        const entries = getAuditEntries().filter(entry => {
-            if (!query) return true;
-            return [entry.actor, entry.role, entry.action, entry.entity, entry.details]
-                .some(value => String(value || '').toLocaleLowerCase().includes(query));
+    async function loadAuditLog() {
+        if (String(identity.role || '').toLocaleLowerCase() !== 'admin') return;
+        const result = await window.BiteRushApi.request('audit', {
+            query: {
+                page: auditPage,
+                pageSize: 50,
+                q: document.getElementById('auditSearch')?.value.trim() || ''
+            }
         });
+        if (!Array.isArray(result.entries) || !result.pagination
+            || !Number.isInteger(result.pagination.page) || !Number.isInteger(result.pagination.pages)) {
+            throw new Error('The audit log response is invalid.');
+        }
+        auditEntries = result.entries;
+        auditPage = result.pagination.page;
+        auditPages = result.pagination.pages;
+        renderAuditLog();
+    }
+
+    function handleAuditLoadError(error) {
+        console.error('Unable to load the database audit log:', error);
+        warnStorage(`Database audit history could not be loaded: ${error.message}`);
+    }
+
+    window.setInterval(() => {
+        if (document.visibilityState !== 'hidden') {
+            loadAuditLog().catch(handleAuditLoadError);
+        }
+    }, 10000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            loadAuditLog().catch(handleAuditLoadError);
+        }
+    });
+
+    document.getElementById('exportAuditButton')?.addEventListener('click', async () => {
+        const query = document.getElementById('auditSearch')?.value.trim() || '';
+        const entries = [];
+        let page = 1;
+        let pages = 1;
+        try {
+            do {
+                const result = await window.BiteRushApi.request('audit', {
+                    query: { page, pageSize: 100, q: query }
+                });
+                if (!Array.isArray(result.entries) || !result.pagination) {
+                    throw new Error('The audit log response is invalid.');
+                }
+                entries.push(...result.entries);
+                pages = result.pagination.pages;
+                page += 1;
+            } while (page <= pages);
+        } catch (error) {
+            console.error('Unable to export the database audit log:', error);
+            warnStorage(`Audit history could not be exported: ${error.message}`);
+            return;
+        }
         const csv = [
             ['time', 'actor', 'role', 'action', 'entity', 'details'],
             ...entries.map(entry => [entry.at, entry.actor, entry.role, entry.action, entry.entity, entry.details])
@@ -2213,28 +2570,66 @@
         link.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
-    document.getElementById('auditSearch')?.addEventListener('input', renderAuditLog);
+    let auditSearchTimer;
+    document.getElementById('auditSearch')?.addEventListener('input', () => {
+        window.clearTimeout(auditSearchTimer);
+        auditPage = 1;
+        auditSearchTimer = window.setTimeout(() => loadAuditLog().catch(handleAuditLoadError), 250);
+    });
+
+    async function loadFeedback() {
+        const message = document.getElementById('feedbackMessage');
+        try {
+            const result = await window.BiteRushApi.request('admin-feedback');
+            if (!Array.isArray(result.reviews)) {
+                throw new Error('The feedback response is invalid.');
+            }
+            feedbackReviews = result.reviews;
+            message.hidden = true;
+        } catch (error) {
+            console.error('Unable to load customer feedback:', error);
+            feedbackReviews = [];
+            message.textContent = `Feedback could not be loaded: ${error.message}`;
+            message.hidden = false;
+        }
+    }
+
+    async function saveFeedbackChanges(review, patch, button) {
+        const message = document.getElementById('feedbackMessage');
+        button.disabled = true;
+        try {
+            const result = await window.BiteRushApi.request('admin-feedback', {
+                method: 'PATCH',
+                body: { id: review.id, ...patch }
+            });
+            Object.assign(review, result.review);
+            message.hidden = true;
+            renderFeedback();
+        } catch (error) {
+            console.error('Unable to save feedback changes:', error);
+            message.textContent = `Feedback could not be saved: ${error.message}`;
+            message.hidden = false;
+            button.disabled = false;
+        }
+    }
 
     function renderFeedback() {
-        const reviews = orders
-            .filter(order => order.feedback && typeof order.feedback === 'object')
-            .map(order => ({ order, feedback: order.feedback }));
+        const reviews = feedbackReviews;
         const filter = document.getElementById('feedbackFilter').value;
         const sort = document.getElementById('feedbackSort').value;
         const search = document.getElementById('feedbackSearch').value.trim().toLocaleLowerCase();
         const rating = review => {
-            const values = [Number(review.feedback.foodRating), Number(review.feedback.deliveryRating)]
+            const values = [Number(review.foodRating), Number(review.deliveryRating)]
                 .filter(value => Number.isFinite(value) && value >= 1 && value <= 5);
             return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
         };
         const visibleReviews = reviews
             .filter(review => filter !== 'low' || (rating(review) > 0 && rating(review) <= 2))
-            .filter(review => !search || `${review.order.id} ${review.feedback.comment || ''}`
+            .filter(review => !search || `${review.orderId} ${review.customerName || ''} ${review.customerEmail || ''} ${review.foodItem || ''} ${review.comment || ''}`
                 .toLocaleLowerCase().includes(search))
             .sort((first, second) => sort === 'lowest'
                 ? rating(first) - rating(second)
-                : new Date(second.feedback.submittedAt || second.order.createdAt || 0)
-                    - new Date(first.feedback.submittedAt || first.order.createdAt || 0));
+                : new Date(second.submittedAt || 0) - new Date(first.submittedAt || 0));
         document.getElementById('feedbackCount').textContent =
             `${visibleReviews.length} ${visibleReviews.length === 1 ? 'review' : 'reviews'}`;
         const list = document.getElementById('feedbackList');
@@ -2244,57 +2639,48 @@
             empty.className = 'empty-panel';
             empty.textContent = reviews.length
                 ? 'No feedback matches these filters.'
-                : 'No customer feedback has been submitted in this browser yet.';
+                : 'No customer feedback has been submitted yet.';
             list.appendChild(empty);
             return;
         }
-        visibleReviews.forEach(({ order, feedback }) => {
+        visibleReviews.forEach(review => {
             const card = document.createElement('article');
             card.className = 'review-card';
             const header = document.createElement('div');
             header.className = 'review-heading';
             const orderNumber = document.createElement('strong');
-            orderNumber.textContent = `Order #${order.id}`;
+            orderNumber.textContent = `Order #${review.orderId} · ${review.customerName || 'Customer'}`;
             const date = document.createElement('time');
-            date.textContent = feedback.submittedAt
-                ? new Date(feedback.submittedAt).toLocaleDateString()
+            date.textContent = review.submittedAt
+                ? new Date(review.submittedAt).toLocaleDateString()
                 : 'Date unavailable';
             header.append(orderNumber, date);
             const ratings = document.createElement('p');
             ratings.className = 'review-ratings';
-            ratings.textContent = `Food: ${feedback.foodRating || '—'}/5 · Delivery: ${feedback.deliveryRating || '—'}/5`;
+            ratings.textContent = `${review.foodItem ? `${review.foodItem} · ` : ''}Food: ${review.foodRating || '—'}/5 · Delivery: ${review.deliveryRating || '—'}/5`;
             const comment = document.createElement('p');
             comment.className = 'review-comment';
-            comment.textContent = feedback.comment || 'No written comment.';
-            if (feedback.hidden) card.classList.add('review-hidden');
+            comment.textContent = review.comment || 'No written comment.';
+            if (review.hidden) card.classList.add('review-hidden');
             const response = document.createElement('textarea');
             response.className = 'review-response';
             response.maxLength = 500;
             response.placeholder = 'Write a response to this review';
-            response.value = feedback.adminResponse || '';
+            response.value = review.adminResponse || '';
             const actions = document.createElement('div');
             actions.className = 'review-actions';
             const saveResponse = document.createElement('button');
             saveResponse.type = 'button';
             saveResponse.className = 'table-action-button';
             saveResponse.textContent = 'Save response';
-            saveResponse.addEventListener('click', () => {
-                feedback.adminResponse = response.value.trim();
-                feedback.responseAt = new Date().toISOString();
-                saveFeedbackChanges(order);
-                addAuditEntry('respond', `review ${order.id}`, 'Customer review response saved');
-                renderFeedback();
-            });
+            saveResponse.addEventListener('click', () =>
+                saveFeedbackChanges(review, { adminResponse: response.value.trim() }, saveResponse));
             const hide = document.createElement('button');
             hide.type = 'button';
             hide.className = 'table-action-button';
-            hide.textContent = feedback.hidden ? 'Show review' : 'Hide review';
-            hide.addEventListener('click', () => {
-                feedback.hidden = !feedback.hidden;
-                saveFeedbackChanges(order);
-                addAuditEntry(feedback.hidden ? 'hide' : 'show', `review ${order.id}`, 'Review visibility changed');
-                renderFeedback();
-            });
+            hide.textContent = review.hidden ? 'Show review' : 'Hide review';
+            hide.addEventListener('click', () =>
+                saveFeedbackChanges(review, { hidden: !review.hidden }, hide));
             actions.append(saveResponse, hide);
             card.append(header, ratings, comment, response, actions);
             list.appendChild(card);
@@ -2354,9 +2740,22 @@
         });
     }
 
-    document.getElementById('adminLogout').addEventListener('click', () => {
-        localStorage.removeItem(sessionKey);
-        localStorage.removeItem(adminIdentityKey);
+    try {
+        await loadAuditLog();
+    } catch (error) {
+        console.error('Unable to load the database audit log:', error);
+        if (String(identity.role || '').toLocaleLowerCase() === 'admin') {
+            warnStorage(`Database audit history could not be loaded: ${error.message}`);
+        }
+        renderAuditLog();
+    }
+
+    document.getElementById('adminLogout').addEventListener('click', async () => {
+        try {
+            await window.BiteRushApi.request('staff-logout', { method: 'POST', body: {} });
+        } catch (error) {
+            console.error('Unable to end administrator session:', error);
+        }
         window.location.href = 'login.html';
     });
     window.addEventListener('storage', event => {
@@ -2381,16 +2780,20 @@
                 overrides = readJSON(overridesKey, {});
                 customProducts = readJSON(customProductsKey, []);
                 renderProducts();
+                if (productCatalogReady && String(identity.role || '').toLocaleLowerCase() === 'admin') {
+                    persistProductCatalog();
+                }
             }
             renderFeedback();
         }
     });
 
+    await loadProductCatalog();
     renderMetrics();
     renderOrderList();
     renderOrderDetail();
     renderSalesReport();
     renderProducts();
-    renderFeedback();
+    loadFeedback().then(renderFeedback);
     renderAuditLog();
 }());

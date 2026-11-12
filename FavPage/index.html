@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="FavPage.css">
     <title>BiteRush - Favorites</title>
-    <link rel="stylesheet" href="../Cart/cart.css">
+    <link rel="stylesheet" href="../Cart/cart.css?v=8">
     <link rel="stylesheet" href="../darkmode.css">
     <link rel="stylesheet" href="../BackButtons.css">
 </head>
@@ -81,11 +81,48 @@
         </div>
     </main>
 
+    <script src="../api.js?v=7"></script>
     <!-- Interactive Cart & Favorites Logic -->
     <script>
         // ---- Favorites Rendering ----
-        let favorites = JSON.parse(localStorage.getItem('biterush_favorites')) || [];
+        let favorites = [];
         const favoritesGrid = document.getElementById('favoritesGrid');
+        const getFavoritesStorageKey = () => {
+            const activeUserId = localStorage.getItem('biterush_active_user_id');
+            return activeUserId ? `biterush_favorites_${activeUserId}` : 'biterush_favorites_guest';
+        };
+
+        function saveLocalFavorites() {
+            try {
+                localStorage.setItem(getFavoritesStorageKey(), JSON.stringify(favorites));
+                return true;
+            } catch (error) {
+                console.error('Unable to save favorites on this device:', error);
+                return false;
+            }
+        }
+
+        function readLocalFavorites() {
+            try {
+                const cached = JSON.parse(localStorage.getItem(getFavoritesStorageKey()) || '[]');
+                return Array.isArray(cached) ? cached.filter(item => item && typeof item.title === 'string') : [];
+            } catch (error) {
+                console.error('Unable to read favorites on this device:', error);
+                return [];
+            }
+        }
+
+        function favoritesFromServer(items) {
+            return items.map(item => ({
+                title: item.title,
+                img: item.img || '',
+                link: item.path || '',
+                price: Number(item.price),
+                category: item.category || '',
+                desc: item.description || '',
+                productId: Number(item.productId)
+            }));
+        }
 
         const legacyImagePaths = {
             'tuyo.png': '../BiteRushFoodMenuPages/BiteRushBreakfastPage/pics/tuyo.png',
@@ -191,13 +228,90 @@
 
         }
 
-        function removeFavorite(title) {
+        async function removeFavorite(title) {
+            const previousFavorites = favorites;
             favorites = favorites.filter(item => item.title !== title);
-            localStorage.setItem('biterush_favorites', JSON.stringify(favorites));
+            saveLocalFavorites();
             renderFavorites();
+            try {
+                await window.BiteRushApi.request('favorites', {
+                    method: 'DELETE',
+                    body: { title }
+                });
+                const result = await window.BiteRushApi.request('favorites');
+                favorites = favoritesFromServer(result.favorites);
+                saveLocalFavorites();
+                renderFavorites();
+            } catch (error) {
+                if (error.code === 'account_context_changed') return;
+                try {
+                    const result = await window.BiteRushApi.request('favorites');
+                    favorites = favoritesFromServer(result.favorites);
+                    saveLocalFavorites();
+                } catch (reloadError) {
+                    console.error('Unable to restore favorites after a failed removal:', reloadError);
+                    favorites = previousFavorites;
+                }
+                renderFavorites();
+                console.error('Unable to remove favorite from the database:', error);
+                window.alert(`Favorite could not be removed: ${error.message}`);
+            }
         }
 
-        renderFavorites();
+        async function loadFavorites() {
+            try {
+                const { user } = await window.BiteRushApi.request('me');
+                window.BiteRushApi.setAccountContext(user);
+                let result = await window.BiteRushApi.request('favorites');
+                if (!Array.isArray(result.favorites)) {
+                    throw new Error('The saved favorites response is invalid.');
+                }
+                if (result.favorites.length === 0) {
+                    const cachedFavorites = readLocalFavorites();
+                    if (cachedFavorites.length > 0) {
+                        await window.BiteRushApi.request('favorites', {
+                            method: 'PUT',
+                            body: {
+                                favorites: cachedFavorites.map(item => ({
+                                    title: item.title,
+                                    img: item.img || '',
+                                    path: item.link || item.path || ''
+                                }))
+                            }
+                        });
+                        result = await window.BiteRushApi.request('favorites');
+                        if (!Array.isArray(result.favorites)) {
+                            throw new Error('The saved favorites response is invalid.');
+                        }
+                    }
+                }
+                favorites = favoritesFromServer(result.favorites);
+                if (!saveLocalFavorites()) {
+                    window.alert('Favorites loaded, but could not be saved on this device.');
+                }
+                renderFavorites();
+            } catch (error) {
+                if (error.code === 'account_context_changed') return;
+                if (error.message === 'Please sign in to continue.') {
+                    if (localStorage.getItem('biterush_active_user_id')) {
+                        window.BiteRushApi.clearAccountContext();
+                    }
+                    favoritesGrid.innerHTML = `
+                        <div class="empty-fav-state">
+                            <h3>Sign in to view your favorites</h3>
+                            <p>Favorites saved to your account appear here after you sign in with your customer account.</p>
+                            <a href="../Login/index.html" class="explore-btn">Sign in</a>
+                        </div>
+                    `;
+                    return;
+                }
+                console.error('Unable to load saved favorites:', error);
+                favoritesGrid.textContent = `Favorites could not be loaded from your account: ${error.message}`;
+                return;
+            }
+        }
+
+        loadFavorites();
     </script>
     <script>
         (() => {
@@ -253,6 +367,6 @@
                 if (event.key === 'Escape') searchButton.click();
             });
         })();
-    </script>    <script src="../Cart/cart.js"></script>
+    </script>    <script src="../Cart/cart.js?v=12"></script>
 </body>
 </html>

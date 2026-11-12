@@ -58,16 +58,17 @@
             <div class="Checkbox-grp">
                 <label>
                     <input id="signup-data-consent" type="checkbox" required>
-                    I consent to saving my account details in this browser.
+                    I consent to saving my account details in the BiteRush database.
                 </label>
             </div>
 
             <p class="auth-message" id="signup-message" role="alert" aria-live="assertive" aria-atomic="true" hidden></p>
             <button class="btn-crt" type="submit">Create Account</button>
             <p class="auth-return">Already registered? <a href="index.html">Log in</a></p>
-            <p class="auth-notice">Your account is saved in this browser. Use a unique password and never reuse a password you use elsewhere.</p>
+            <p class="auth-notice">Your account details are stored on the BiteRush server. Use a unique password and never reuse a password you use elsewhere.</p>
         </form>
     </main>
-    <script src="./auth.js"></script>
+    <script src="../api.js?v=7"></script>
+    <script src="./auth.js?v=2"></script>
 </body>
 </html>

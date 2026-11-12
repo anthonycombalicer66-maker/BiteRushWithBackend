@@ -38,6 +38,7 @@
                 <span class="order-status" id="orderStatus">Loading…</span>
             </div>
             <p class="order-message" id="orderMessage" role="status" aria-live="polite" hidden></p>
+            <p class="order-message is-locked" id="statusLockMessage" role="status" aria-live="polite" hidden></p>
             <div id="orderDetails"></div>
             <div class="order-status-editor" id="orderStatusEditor" hidden>
                 <label for="statusSelect">Update order status</label>
@@ -53,13 +54,14 @@
             </div>
         </section>
 
-        <p class="dashboard-disclaimer">Orders are stored on this device only, and staff access is not secured. Do not use this page with real customer data.</p>
+        <p class="dashboard-disclaimer">Staff access and order status updates are handled by the BiteRush server.</p>
     </main>
 
+    <script src="../api.js?v=7"></script>
     <script>
-        (function () {
-            const sessionKey = 'biterush_staff_demo_session';
+        (async function () {
             const receiptKey = 'biterush_last_order';
+            const ordersKey = 'biterush_orders';
             const stages = ['received', 'preparing', 'on_the_way', 'delivered'];
             const stageLabels = {
                 received: 'Order received',
@@ -67,14 +69,21 @@
                 on_the_way: 'On the way',
                 delivered: 'Delivered'
             };
-            const staffName = sessionStorage.getItem(sessionKey);
-
-            if (!staffName) {
+            let staff;
+            try {
+                ({ staff } = await window.BiteRushApi.request('staff-session'));
+                const result = await window.BiteRushApi.request('admin-orders');
+                localStorage.setItem(ordersKey, JSON.stringify(result.orders));
+                if (result.orders.length) {
+                    localStorage.setItem(receiptKey, JSON.stringify(result.orders[0]));
+                }
+            } catch (error) {
+                console.error('Unable to load staff session or orders:', error);
                 window.location.replace('index.html');
                 return;
             }
 
-            document.getElementById('staffName').textContent = staffName;
+            document.getElementById('staffName').textContent = staff.name;
 
             const orderStatus = document.getElementById('orderStatus');
             const orderDetails = document.getElementById('orderDetails');
@@ -101,10 +110,29 @@
                     return;
                 }
 
+                const cancelled = receipt.status === 'cancelled';
                 const status = stages.includes(receipt.status) ? receipt.status : 'received';
-                orderStatus.textContent = stageLabels[status];
+                orderStatus.textContent = cancelled ? 'Cancelled' : stageLabels[status];
+                const currentStageIndex = stages.indexOf(status);
+                statusSelect.replaceChildren(...stages.slice(currentStageIndex).map(stage => {
+                    const option = document.createElement('option');
+                    option.value = stage;
+                    option.textContent = stageLabels[stage];
+                    return option;
+                }));
                 statusSelect.value = status;
-                statusEditor.hidden = false;
+                const lockedByAdmin = receipt.adminStatusLocked === true;
+                const noFurtherStages = currentStageIndex === stages.length - 1;
+                statusSelect.disabled = lockedByAdmin || cancelled || noFurtherStages;
+                document.getElementById('saveStatusButton').disabled =
+                    lockedByAdmin || cancelled || noFurtherStages;
+                const statusLockMessage = document.getElementById('statusLockMessage');
+                statusLockMessage.textContent = lockedByAdmin
+                    ? 'An admin has updated this order. Staff can no longer change its status.'
+                    : cancelled ? 'Cancelled orders cannot be changed.'
+                        : noFurtherStages ? 'Delivered orders cannot be changed by staff.' : '';
+                statusLockMessage.hidden = !lockedByAdmin && !cancelled && !noFurtherStages;
+                statusEditor.hidden = lockedByAdmin || cancelled;
 
                 const itemList = receipt.items.map(item => {
                     const row = document.createElement('li');
@@ -143,7 +171,7 @@
                 orderDetails.replaceChildren(list);
             }
 
-            document.getElementById('saveStatusButton').addEventListener('click', () => {
+            document.getElementById('saveStatusButton').addEventListener('click', async () => {
                 let receipt;
                 try {
                     receipt = JSON.parse(localStorage.getItem(receiptKey) || 'null');
@@ -152,15 +180,27 @@
                         orderMessage.hidden = false;
                         return;
                     }
-                    if (receipt.status === 'cancelled' || receipt.status === 'delivered') {
-                        orderMessage.textContent = `Terminal orders (${receipt.status}) cannot be changed.`;
+                    if (receipt.status === 'cancelled') {
+                        orderMessage.textContent = 'Cancelled orders cannot be changed.';
                         orderMessage.hidden = false;
                         return;
                     }
+                    if (receipt.adminStatusLocked === true) {
+                        orderMessage.textContent = 'An admin has already changed this order status. Staff can no longer update it.';
+                        orderMessage.hidden = false;
+                        return;
+                    }
+                    if (stages.indexOf(statusSelect.value) < stages.indexOf(receipt.status)) {
+                        orderMessage.textContent = 'Staff can only move order status forward.';
+                        orderMessage.hidden = false;
+                        return;
+                    }
+                    await window.BiteRushApi.request('order-status', {
+                        method: 'PATCH',
+                        body: { id: receipt.id, status: statusSelect.value }
+                    });
                     receipt.status = statusSelect.value;
                     receipt.updatedAt = new Date().toISOString();
-                    receipt.statusUpdatedBy = staffName;
-                    const ordersKey = 'biterush_orders';
                     const history = JSON.parse(localStorage.getItem(ordersKey) || '[]');
                     if (Array.isArray(history)) {
                         const index = history.findIndex(order => order && order.id === receipt.id);
@@ -172,7 +212,21 @@
                     localStorage.setItem(receiptKey, JSON.stringify(receipt));
                 } catch (error) {
                     console.error('Unable to update order status:', error);
-                    orderMessage.textContent = 'The order status could not be saved in this browser.';
+                    if (error.message.includes('admin has already changed')) {
+                        try {
+                            const result = await window.BiteRushApi.request('admin-orders');
+                            localStorage.setItem(ordersKey, JSON.stringify(result.orders));
+                            const latestReceipt = result.orders.find(order => order.id === receipt.id);
+                            if (latestReceipt) {
+                                receipt = latestReceipt;
+                                localStorage.setItem(receiptKey, JSON.stringify(receipt));
+                                renderOrder();
+                            }
+                        } catch (refreshError) {
+                            console.error('Unable to refresh the order after an admin update:', refreshError);
+                        }
+                    }
+                    orderMessage.textContent = error.message || 'The order status could not be saved.';
                     orderMessage.hidden = false;
                     return;
                 }
@@ -182,8 +236,12 @@
                 renderOrder();
             });
 
-            document.getElementById('signOutButton').addEventListener('click', () => {
-                sessionStorage.removeItem(sessionKey);
+            document.getElementById('signOutButton').addEventListener('click', async () => {
+                try {
+                    await window.BiteRushApi.request('staff-logout', { method: 'POST', body: {} });
+                } catch (error) {
+                    console.error('Unable to end staff session:', error);
+                }
                 window.location.href = 'index.html';
             });
 

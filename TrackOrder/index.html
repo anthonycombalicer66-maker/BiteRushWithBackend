@@ -102,6 +102,7 @@
         </section>
     </main>
 
+    <script src="../api.js?v=7"></script>
     <script>
         (function () {
             const receiptKey = 'biterush_last_order';
@@ -168,7 +169,7 @@
                 document.getElementById('statusMessage').textContent = cancelled
                     ? `${notes.cancelled}${receipt.cancellationReason ? ` Reason: ${receipt.cancellationReason}` : ''}`
                     : notes[stages[stageIndex]];
-                confirmDelivery.hidden = cancelled || stageIndex >= stages.length - 1;
+                confirmDelivery.hidden = cancelled || receipt.status !== 'on_the_way';
                 feedbackPrompt.hidden = cancelled || stageIndex !== stages.length - 1;
                 feedbackPrompt.href = `../Feedback/index.html?order=${encodeURIComponent(receipt.id || '')}`;
 
@@ -180,7 +181,36 @@
                         : '';
             };
 
-            document.getElementById('confirmDelivery').addEventListener('click', () => {
+            async function loadLatestOrder() {
+                try {
+                    let cached = null;
+                    try {
+                        cached = JSON.parse(localStorage.getItem(receiptKey) || 'null');
+                    } catch (error) {
+                        console.error('Unable to read cached tracking details:', error);
+                    }
+                    let order;
+                    if (cached && cached.id) {
+                        ({ order } = await window.BiteRushApi.request('order', {
+                            query: { id: cached.id }
+                        }));
+                    } else {
+                        const result = await window.BiteRushApi.request('orders');
+                        order = result.orders[0];
+                    }
+                    if (order) {
+                        localStorage.setItem(receiptKey, JSON.stringify(order));
+                        render();
+                    }
+                } catch (error) {
+                    console.error('Unable to load order tracking from the server:', error);
+                    if (error.message.includes('sign in')) {
+                        document.getElementById('orderNumber').textContent = error.message;
+                    }
+                }
+            }
+
+            document.getElementById('confirmDelivery').addEventListener('click', async () => {
                 let receipt;
                 try {
                     receipt = JSON.parse(localStorage.getItem(receiptKey) || 'null');
@@ -190,9 +220,14 @@
                 }
                 if (!receipt || !Array.isArray(receipt.items) || receipt.status === 'cancelled') return;
 
-                receipt.status = 'delivered';
-                receipt.updatedAt = new Date().toISOString();
                 try {
+                    await window.BiteRushApi.request('confirm-delivery', {
+                        method: 'POST',
+                        body: { id: receipt.id }
+                    });
+                    receipt.status = 'delivered';
+                    receipt.confirmedDelivered = true;
+                    receipt.updatedAt = new Date().toISOString();
                     const orders = JSON.parse(localStorage.getItem('biterush_orders') || '[]');
                     if (!Array.isArray(orders)) {
                         throw new Error('Saved order history is not a valid list.');
@@ -214,6 +249,7 @@
             });
 
             render();
+            loadLatestOrder();
             window.addEventListener('storage', event => {
                 if (event.key === receiptKey) render();
             });

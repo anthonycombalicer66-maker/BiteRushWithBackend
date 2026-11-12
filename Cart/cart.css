@@ -368,3 +368,156 @@
     background: #fff0ad;
     transform: translateY(-1px);
 }
+
+.food-rating-link {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 0;
+    margin-top: 2px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #5c4700;
+    font-size: 10px;
+    font-weight: 750;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: color .15s ease;
+}
+
+.food-rating-link:hover {
+    color: #9a6b00;
+    text-decoration: underline;
+}
+
+.food-rating-link:focus-visible {
+    outline: 3px solid #8a6700;
+    outline-offset: 2px;
+}
+
+.item-card {
+    display: grid;
+    grid-template-columns: minmax(220px, 30%) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: start;
+    column-gap: 24px;
+    row-gap: 18px;
+}
+
+.item-card > .item-img {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: start;
+    width: 100%;
+    height: 180px;
+    border-radius: 12px;
+}
+
+.item-card > .item-details {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+}
+
+.item-card .item-title {
+    font-size: clamp(22px, 2.5vw, 28px);
+    line-height: 1.15;
+}
+
+.item-card .item-description {
+    max-width: none;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.item-card .item-meta {
+    flex-wrap: wrap;
+    gap: 12px 20px;
+}
+
+.item-card > .item-quantity-price {
+    position: static;
+    grid-column: 2;
+    grid-row: 2;
+    align-self: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    width: 100%;
+    margin: 0;
+}
+
+.item-card .shared-add-detail {
+    margin-top: 0;
+}
+
+.item-card .dish-special-instructions {
+    display: block;
+    width: 100%;
+    max-width: none;
+    min-height: 56px;
+    margin: 0;
+    resize: vertical;
+}
+
+.item-card > .dish-special-instructions {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.item-card .food-rating-link {
+    min-height: 32px;
+    margin-top: 12px;
+    padding: 6px 10px;
+    border: 1px solid #e3c34d;
+    border-radius: 999px;
+    background: #fff8dc;
+    color: #5c4700;
+    font-size: 11px;
+    font-weight: 800;
+    text-decoration: none;
+    transition: background-color .15s ease, transform .15s ease;
+}
+
+.item-card .food-rating-link:hover {
+    background: #fff0ad;
+    color: #5c4700;
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+
+@media (max-width: 600px) {
+    .item-card {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto auto auto;
+        gap: 16px;
+    }
+
+    .item-card > .item-img {
+        grid-column: 1;
+        grid-row: 1;
+        width: 100%;
+        height: auto;
+        max-height: 280px;
+        aspect-ratio: 1.4;
+    }
+
+    .item-card > .item-details {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .item-card > .dish-special-instructions {
+        grid-column: 1;
+        grid-row: 3;
+    }
+
+    .item-card > .item-quantity-price {
+        grid-column: 1;
+        grid-row: 4;
+        justify-content: space-between;
+    }
+}

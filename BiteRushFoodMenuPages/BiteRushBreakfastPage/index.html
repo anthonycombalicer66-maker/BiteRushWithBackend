@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BiteRush - Breakfast Menu</title>
     <link rel="stylesheet" href="BreakfastKulay.css">
-    <link rel="stylesheet" href="../../Cart/cart.css">
+    <link rel="stylesheet" href="../../Cart/cart.css?v=8">
     <link rel="stylesheet" href="../../darkmode.css">
     <link rel="stylesheet" href="../../BackButtons.css">
 </head>
@@ -333,8 +333,11 @@
     </main>
 
     <script>
-        const favoritesKey = 'biterush_favorites';
-        let favorites = JSON.parse(localStorage.getItem(favoritesKey)) || [];
+        const getFavoritesStorageKey = () => {
+            const activeUserId = localStorage.getItem('biterush_active_user_id');
+            return activeUserId ? `biterush_favorites_${activeUserId}` : 'biterush_favorites_guest';
+        };
+        let favorites = JSON.parse(localStorage.getItem(getFavoritesStorageKey())) || [];
         const heartIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>';
 
         function updateFavoriteBadges() {
@@ -362,6 +365,7 @@
 
             favoriteButton.addEventListener('click', event => {
                 event.stopPropagation();
+                favorites = JSON.parse(localStorage.getItem(getFavoritesStorageKey()) || '[]');
                 if (isFavorite()) {
                     favorites = favorites.filter(item => item.title !== title);
                 } else {
@@ -374,7 +378,7 @@
                         link: buyLink ? buyLink.getAttribute('href') : '#'
                     });
                 }
-                localStorage.setItem(favoritesKey, JSON.stringify(favorites));
+                localStorage.setItem(getFavoritesStorageKey(), JSON.stringify(favorites));
                 updateButton();
                 updateFavoriteBadges();
             });
@@ -441,7 +445,9 @@
                 if (event.key === 'Escape') searchButton.click();
             });
         })();
-    </script>    <script src="../../Cart/cart.js"></script>
+    </script>
+    <script src="../../api.js?v=7"></script>
+    <script src="../../Cart/cart.js?v=12"></script>
+    <script src="../../favorites-sync.js?v=5"></script>
 </body>
 </html>
-

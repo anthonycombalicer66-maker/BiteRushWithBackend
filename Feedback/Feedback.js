@@ -20,6 +20,7 @@
     let receipt = null;
     let eligibleItems = [];
     let activeRating = null;
+    let serverReviews = null;
 
     function normalizeFood(value) {
         return String(value || '').trim().toLocaleLowerCase();
@@ -120,6 +121,7 @@
     }
 
     function reviewsForFood() {
+        if (serverReviews) return serverReviews;
         return loadOrders()
             .filter(order => order.status === 'delivered')
             .flatMap(getOrderReviews)
@@ -419,7 +421,7 @@
         document.getElementById('characterCount').textContent = event.target.value.length;
     });
 
-    form.addEventListener('submit', event => {
+    form.addEventListener('submit', async event => {
         event.preventDefault();
         errorMessage.hidden = true;
         if (!form.reportValidity()) return;
@@ -447,6 +449,17 @@
         };
 
         try {
+            await window.BiteRushApi.request('feedback', {
+                method: 'POST',
+                body: {
+                    orderId: receipt.id,
+                    foodItem: productReview.foodItem,
+                    foodItemPath,
+                    foodRating,
+                    deliveryRating,
+                    comment: productReview.comment
+                }
+            });
             let current = null;
             const history = JSON.parse(localStorage.getItem(ordersKey) || '[]');
             if (!Array.isArray(history)) {
@@ -526,5 +539,36 @@
         }
     });
 
-    renderPage();
+    async function initializeFeedback() {
+        if (requestedFood) {
+            try {
+                const result = await window.BiteRushApi.request('feedback', {
+                    query: { food: requestedFood }
+                });
+                serverReviews = result.reviews;
+            } catch (error) {
+                console.error('Unable to load food reviews from the server:', error);
+                setReviewError(error.message);
+            }
+        }
+        try {
+            const result = await window.BiteRushApi.request('orders');
+            localStorage.setItem(ordersKey, JSON.stringify(result.orders));
+            const latest = result.orders.find(order => order.id === requestedOrder) || result.orders[0];
+            if (latest) localStorage.setItem(receiptKey, JSON.stringify(latest));
+            renderPage();
+        } catch (error) {
+            console.error('Unable to load delivered orders for feedback:', error);
+            unavailableMessage.textContent = error.message;
+            unavailable.hidden = false;
+            orderFeedback.hidden = Boolean(requestedFood);
+            form.hidden = true;
+            if (requestedFood) {
+                renderPage();
+                renderReviews();
+            }
+        }
+    }
+
+    initializeFeedback();
 }());

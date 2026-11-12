@@ -1,8 +1,41 @@
 (function () {
     const CART_KEY = 'biterush_cart';
+    const SINGLE_ITEM_CHECKOUT_KEY = 'biterush_single_checkout_keys';
     const PRODUCT_OVERRIDES_KEY = 'biterush_product_overrides';
     const CUSTOM_PRODUCTS_KEY = 'biterush_custom_products';
+    const projectPath = location.pathname.match(/^(.*?\/BiteRush)(?:\/|$)/i);
+    const apiUrl = `${projectPath ? projectPath[1] : ''}/api/index.php`;
+    const initialAccountId = localStorage.getItem('biterush_active_user_id');
+    const accountHeaders = () => {
+        const api = window.BiteRushApi;
+        if (api && typeof api.accountHeaders === 'function') return api.accountHeaders();
+        return initialAccountId ? { 'X-BiteRush-Account': initialAccountId } : {};
+    };
+    const recoverAccountContext = async () => {
+        const response = await fetch(`${apiUrl}?action=me`, { credentials: 'same-origin' });
+        const result = await response.json();
+        if (!response.ok || !result.user || !Number.isSafeInteger(Number(result.user.id))) {
+            throw new Error(result.error || 'Could not verify the active account.');
+        }
+        const api = window.BiteRushApi;
+        if (api && typeof api.setAccountContext === 'function') {
+            const changed = api.setAccountContext(result.user);
+            if (changed) location.reload();
+            return changed;
+        }
+        const userId = String(Number(result.user.id));
+        if (localStorage.getItem('biterush_active_user_id') !== userId) {
+            clearAccountCache(userId);
+            location.reload();
+            return true;
+        }
+        return false;
+    };
     const normalizeTitle = title => String(title || '').trim().toLocaleLowerCase();
+    const catalogImageUrl = image => image
+        ? new URL(image, `${location.origin}${projectPath ? projectPath[1] : ''}/SearchResults/`).href
+        : '';
+    let productRatingsRequest;
     const readArray = (key, fallback) => {
         try {
             const value = JSON.parse(localStorage.getItem(key) || 'null');
@@ -11,6 +44,249 @@
             console.error(`Unable to read ${key}:`, error);
             return fallback;
         }
+    };
+
+    const createProductRatingLink = card => {
+        const title = card.dataset.title
+            || card.querySelector('.food-title, .item-title, h3')?.textContent.trim();
+        if (!title) return null;
+
+        card.dataset.title = title;
+        const link = card.querySelector('.food-rating-link') || document.createElement('a');
+        link.className = 'food-rating-link';
+        const reviewsUrl = new URL(
+            `${projectPath ? projectPath[1] : ''}/Feedback/index.html`,
+            location.origin
+        );
+        reviewsUrl.searchParams.set('v', '4');
+        reviewsUrl.searchParams.set('food', title);
+        const detailLink = card.dataset.link
+            || card.querySelector('.buy-btn')?.closest('a')?.getAttribute('href')
+            || (card.classList.contains('item-card') ? location.pathname : '');
+        if (detailLink) {
+            reviewsUrl.searchParams.set('path', new URL(detailLink, location.href).pathname);
+        }
+        link.href = reviewsUrl.href;
+        link.setAttribute('aria-label', `Ratings for ${title}`);
+        link.title = `Ratings for ${title}`;
+
+        if (!link.isConnected) {
+            const container = card.querySelector('.food-info, .search-result-info, .item-details') || card;
+            const meta = container.querySelector('.food-meta, .item-meta');
+            const priceRow = container.querySelector(
+                '.price-container, .search-result-footer, .item-quantity-price'
+            );
+            if (meta) meta.insertAdjacentElement('afterend', link);
+            else if (priceRow) priceRow.before(link);
+            else container.appendChild(link);
+        }
+        return link;
+    };
+
+    const loadProductRatings = () => {
+        if (!productRatingsRequest) {
+            productRatingsRequest = fetch(`${apiUrl}?action=product-ratings`, {
+                credentials: 'same-origin'
+            }).then(async response => {
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not load food ratings.');
+                if (!result || !Array.isArray(result.ratings)) {
+                    throw new Error('The food ratings response is invalid.');
+                }
+                return new Map(result.ratings.map(rating => [
+                    normalizeTitle(rating.foodItem),
+                    {
+                        average: Number(rating.averageRating),
+                        count: Number(rating.ratingCount)
+                    }
+                ]));
+            }).catch(error => {
+                productRatingsRequest = null;
+                throw error;
+            });
+        }
+        return productRatingsRequest;
+    };
+
+    const refreshProductRatings = async () => {
+        const cards = [...document.querySelectorAll('.food-card, .search-result-card, .item-card')];
+        const links = cards.map(card => ({
+            title: card.dataset.title || card.querySelector('.food-title, .item-title, h3')?.textContent.trim(),
+            link: createProductRatingLink(card)
+        })).filter(item => item.title && item.link);
+        if (!links.length) return;
+
+        try {
+            const ratings = await loadProductRatings();
+            links.forEach(({ title, link }) => {
+                const rating = ratings.get(normalizeTitle(title));
+                if (!rating || !Number.isFinite(rating.average) || rating.count < 1) {
+                    link.textContent = '☆ No ratings yet';
+                    link.setAttribute('aria-label', `No ratings yet for ${title}`);
+                    return;
+                }
+                const reviewLabel = rating.count === 1 ? 'review' : 'reviews';
+                link.textContent = `★ ${rating.average.toFixed(1)} (${rating.count})`;
+                link.setAttribute(
+                    'aria-label',
+                    `${rating.average.toFixed(1)} out of 5 from ${rating.count} ${reviewLabel} for ${title}`
+                );
+            });
+        } catch (error) {
+            console.error('Unable to load food ratings from the server:', error);
+            links.forEach(({ title, link }) => {
+                link.textContent = 'Ratings unavailable';
+                link.setAttribute('aria-label', `Ratings unavailable for ${title}`);
+            });
+        }
+    };
+
+    const appendDatabaseProduct = product => {
+        const titleKey = normalizeTitle(product.title);
+        if (document.querySelectorAll('.food-card, .search-result-card').length
+            && [...document.querySelectorAll('.food-card, .search-result-card')].some(card =>
+                normalizeTitle(card.dataset.title || card.querySelector('.food-title, h3')?.textContent) === titleKey
+            )) return;
+
+        if (isProjectRootPage) {
+            const grid = document.querySelector('.food-grid');
+            if (!grid) return;
+            const card = document.createElement('div');
+            card.className = 'food-card';
+            const image = document.createElement('img');
+            image.className = 'food-img';
+            image.src = catalogImageUrl(product.image) || '../BiteRushHomePage/HomePagePics/burger.png';
+            image.alt = product.title;
+            const info = document.createElement('div');
+            info.className = 'food-info';
+            const title = document.createElement('h2');
+            title.className = 'food-title';
+            title.textContent = product.title;
+            const category = document.createElement('span');
+            category.className = 'food-category';
+            category.textContent = product.category || 'Menu';
+            const description = document.createElement('p');
+            description.className = 'food-description';
+            description.textContent = product.description || '';
+            const price = document.createElement('span');
+            price.className = 'price';
+            price.textContent = money(product.price);
+            const addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'add-btn';
+            addButton.textContent = 'Add to cart';
+            addButton.dataset.title = product.title;
+            addButton.dataset.productId = String(product.id);
+            addButton.dataset.price = String(product.price);
+            addButton.dataset.img = catalogImageUrl(product.image);
+            info.append(title, category, description, price, addButton);
+            card.append(image, info);
+            grid.appendChild(card);
+            applyProductSetting(card, product.title);
+            return;
+        }
+
+        const grid = document.querySelector('.search-results-grid');
+        if (!grid) return;
+        const query = new URLSearchParams(location.search).get('q')?.trim().toLocaleLowerCase() || '';
+        if (query && ![product.title, product.category, product.description]
+            .join(' ').toLocaleLowerCase().includes(query)) return;
+
+        const card = document.createElement('article');
+        card.className = 'search-result-card';
+        const imageBox = document.createElement('div');
+        imageBox.className = 'search-result-image';
+        const image = document.createElement('img');
+        image.src = catalogImageUrl(product.image) || '../BiteRushHomePage/HomePagePics/burger.png';
+        image.alt = product.title;
+        imageBox.appendChild(image);
+        const info = document.createElement('div');
+        info.className = 'search-result-info';
+        const title = document.createElement('h3');
+        title.textContent = product.title;
+        const category = document.createElement('div');
+        category.className = 'search-result-category';
+        category.textContent = product.category || 'Menu';
+        const description = document.createElement('p');
+        description.className = 'search-result-description';
+        description.textContent = product.description || '';
+        const footer = document.createElement('div');
+        footer.className = 'search-result-footer';
+        const price = document.createElement('span');
+        price.className = 'search-result-price';
+        price.textContent = money(product.price);
+        const addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.className = 'search-result-add add-btn';
+        addButton.setAttribute('aria-label', `Add ${product.title} to cart`);
+        addButton.dataset.title = product.title;
+        addButton.dataset.productId = String(product.id);
+        addButton.dataset.price = String(product.price);
+        addButton.dataset.img = catalogImageUrl(product.image);
+        addButton.textContent = '+';
+        footer.append(price, addButton);
+        info.append(title, category, description, footer);
+        card.append(imageBox, info);
+        grid.appendChild(card);
+        applyProductSetting(card, product.title);
+
+        const count = grid.querySelectorAll('.search-result-card:not([hidden])').length;
+        const summary = document.getElementById('resultsSummary');
+        if (summary) {
+            summary.textContent = `${count} dish${count === 1 ? '' : 'es'} found`;
+        }
+    };
+
+    const loadDatabaseCatalog = async () => {
+        const response = await fetch(`${apiUrl}?action=products`, { credentials: 'same-origin' });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not load the menu catalog.');
+        if (!result || !Array.isArray(result.products)) {
+            throw new Error('The menu catalog response is invalid.');
+        }
+
+        result.products.forEach(product => {
+            if (!product || !product.title || !Number.isFinite(Number(product.price))) return;
+            const key = normalizeTitle(product.title);
+            databaseProducts.set(key, product);
+            productOverrides[key] = {
+                ...(productOverrides[key] || {}),
+                databaseId: product.id,
+                title: product.title,
+                price: Number(product.price),
+                category: product.category,
+                description: product.description,
+                image: product.image,
+                stock: product.stock,
+                available: product.available,
+                deleted: product.deleted
+            };
+        });
+
+        if (result.products.length) {
+            try {
+                localStorage.setItem(PRODUCT_OVERRIDES_KEY, JSON.stringify(productOverrides));
+            } catch (error) {
+                console.error('Unable to cache the database menu catalog:', error);
+            }
+        }
+        applyProductSettings();
+        if (!isProjectRootPage) result.products.forEach(appendDatabaseProduct);
+        cart = cart.map(item => {
+            const product = databaseProducts.get(normalizeTitle(item.title));
+            return product
+                ? { ...item, title: product.title, productId: Number(product.id), price: Number(product.price),
+                    img: catalogImageUrl(product.image) || item.img }
+                : item;
+        });
+        try {
+            localStorage.setItem(CART_KEY, JSON.stringify(cart));
+        } catch (error) {
+            console.error('Unable to cache the database menu prices in your cart:', error);
+        }
+        render();
+        window.dispatchEvent(new CustomEvent('biterush-menu-updated'));
+        window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
     };
     const customProducts = readArray(CUSTOM_PRODUCTS_KEY, []);
     const getStock = title => {
@@ -35,6 +311,7 @@
         }
     };
     let productOverrides = readObject(PRODUCT_OVERRIDES_KEY, {});
+    const databaseProducts = new Map();
     const readCart = () => {
         try {
             const value = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
@@ -63,13 +340,32 @@
 
     const saveCart = () => {
         localStorage.setItem(CART_KEY, JSON.stringify(cart));
+        fetch(`${apiUrl}?action=cart`, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', ...accountHeaders() },
+            body: JSON.stringify({ items: cart })
+        }).then(async response => {
+            if (response.status === 401) return;
+            if (!response.ok) {
+                const result = await response.json();
+                if (result.code === 'account_context_changed' || result.code === 'account_context_missing') {
+                    if (await recoverAccountContext()) return;
+                }
+                if (!response.ok) {
+                    throw new Error(result.error || 'Could not save your cart.');
+                }
+            }
+        }).catch(error => console.error('Unable to sync cart with the server:', error));
         window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
         render();
     };
     const money = value => `₱ ${Number(value).toFixed(0)}`;
     const itemKey = item => item.key || item.link || `${item.title}|${item.img}`;
     const add = item => {
-        const override = productOverrides[normalizeTitle(item.title)];
+        const key = normalizeTitle(item.title);
+        const product = databaseProducts.get(key);
+        const override = productOverrides[key];
         if (override && override.deleted === true) {
             window.alert(`${item.title} is not currently available.`);
             return false;
@@ -88,7 +384,12 @@
                 : `Only ${stock} ${item.title} item${stock === 1 ? ' is' : 's are'} available.`);
             return false;
         }
-        if (override && Number.isFinite(Number(override.price))) {
+        if (product) {
+            item.title = product.title;
+            item.productId = Number(product.id);
+            item.price = Number(product.price);
+            item.img = catalogImageUrl(product.image) || item.img;
+        } else if (override && Number.isFinite(Number(override.price))) {
             item.price = Number(override.price);
         }
         item.img = new URL(item.img, location.href).href;
@@ -174,6 +475,13 @@
         if (!title) return;
         const override = productOverrides[normalizeTitle(title)];
         if (!override) return;
+        if (override.databaseId) {
+            card.dataset.productId = String(override.databaseId);
+            card.querySelectorAll('.add-btn, .search-result-add, .shared-add-detail')
+                .forEach(addButton => {
+                    addButton.dataset.productId = String(override.databaseId);
+                });
+        }
         if (override.deleted === true) {
             card.querySelectorAll('.add-btn, .search-result-add, .shared-add-detail')
                 .forEach(addButton => {
@@ -211,7 +519,7 @@
                 });
         }
         if (override.image) {
-            const image = new URL(override.image, location.href).href;
+            const image = catalogImageUrl(override.image);
             card.querySelectorAll('.food-img, .search-result-image img, .item-img')
                 .forEach(imageElement => {
                     imageElement.src = image;
@@ -281,11 +589,11 @@
             ['unavailable', 'Unavailable only']
         ]);
         grid.parentElement.insertBefore(tools, grid);
-        const cards = [...grid.children].filter(card =>
+        const cards = () => [...grid.children].filter(card =>
             card.matches('.food-card, .search-result-card')
         );
         const update = () => {
-            const ordered = [...cards];
+            const ordered = cards();
             if (sort.value === 'name') {
                 ordered.sort((first, second) =>
                     (first.querySelector('.food-title, h3')?.textContent.trim() || '')
@@ -315,49 +623,6 @@
         update();
     }
 
-    if (isProjectRootPage) {
-        const customProducts = readObject(CUSTOM_PRODUCTS_KEY, []);
-        const foodGrid = document.querySelector('.food-grid');
-        if (Array.isArray(customProducts) && foodGrid) {
-            customProducts.forEach(product => {
-            if (!product || product.deleted === true || !product.title || !Number.isFinite(Number(product.price))) return;
-                const card = document.createElement('div');
-                card.className = 'food-card';
-                card.dataset.productId = product.id || '';
-                card.dataset.title = product.title;
-                card.dataset.price = String(product.price);
-                card.dataset.img = product.image || '';
-                const image = document.createElement('img');
-                image.className = 'food-img';
-                image.src = product.image || '../BiteRushHomePage/HomePagePics/burger.png';
-                image.alt = product.title;
-                const info = document.createElement('div');
-                info.className = 'food-info';
-                const title = document.createElement('h2');
-                title.className = 'food-title';
-                title.textContent = product.title;
-                const category = document.createElement('span');
-                category.className = 'food-category';
-                category.textContent = product.category || 'Featured dish';
-                const description = document.createElement('p');
-                description.className = 'food-description';
-                description.textContent = product.description || '';
-                const price = document.createElement('span');
-                price.className = 'price';
-                price.textContent = money(product.price);
-                const addButton = document.createElement('button');
-                addButton.type = 'button';
-                addButton.className = 'add-btn';
-                addButton.dataset.title = product.title;
-                addButton.dataset.price = String(product.price);
-                addButton.dataset.img = product.image || '';
-                addButton.textContent = 'Add to cart';
-                info.append(title, category, description, price, addButton);
-                card.append(image, info);
-                foodGrid.appendChild(card);
-            });
-        }
-    }
     applyProductSettings();
 
     const overlay = document.createElement('div');
@@ -449,19 +714,21 @@
         if (control) change(control.dataset.title, Number(control.dataset.change));
     });
 
-    document.querySelectorAll('.add-btn').forEach(addButton => {
-        addButton.addEventListener('click', event => {
-            const card = event.currentTarget.closest('.food-card, .search-result-card');
-            if (!card) return;
-            const image = card.querySelector('.food-img');
-            const source = event.currentTarget.dataset;
-            const detailLink = source.link || card.dataset.link || card.querySelector('.buy-btn')?.closest('a')?.getAttribute('href');
-            add({
-                title: source.title || card.dataset.title || card.querySelector('.food-title')?.textContent.trim(),
-                price: Number(source.price || card.dataset.price || card.querySelector('.price')?.textContent.replace(/[^\d.]/g, '')),
-                img: source.img || card.dataset.img || image?.getAttribute('src'),
-                link: detailLink ? new URL(detailLink, location.href).pathname : ''
-            });
+    document.addEventListener('click', event => {
+        const addButton = event.target.closest('.add-btn');
+        if (!addButton) return;
+        const card = addButton.closest('.food-card, .search-result-card');
+        if (!card) return;
+        const image = card.querySelector('.food-img, .search-result-image img');
+        const source = addButton.dataset;
+        const detailLink = source.link || card.dataset.link || card.querySelector('.buy-btn')?.closest('a')?.getAttribute('href');
+        add({
+            title: source.title || card.dataset.title || card.querySelector('.food-title, h3')?.textContent.trim(),
+            productId: source.productId ? Number(source.productId) : undefined,
+            price: Number(source.price || card.dataset.price
+                || card.querySelector('.price, .search-result-price')?.textContent.replace(/[^\d.]/g, '')),
+            img: source.img || card.dataset.img || image?.getAttribute('src'),
+            link: detailLink ? new URL(detailLink, location.href).pathname : ''
         });
     });
 
@@ -475,7 +742,9 @@
         notes.rows = 2;
         notes.placeholder = 'Optional: special preparation instructions';
         notes.setAttribute('aria-label', 'Optional special preparation instructions');
-        detailCard.querySelector('.item-quantity-price')?.before(notes);
+        const detailInfo = detailCard.querySelector('.item-details');
+        if (detailImage) detailImage.after(notes);
+        else if (detailInfo) detailInfo.before(notes);
         const detailItem = () => ({
             key: `${location.pathname}|${notes.value.trim()}`,
             title: detailCard.querySelector('.item-title')?.textContent.trim(),
@@ -532,17 +801,101 @@
             });
         }
         document.querySelectorAll('.checkout-btn').forEach(checkoutButton => {
-            checkoutButton.addEventListener('click', () => {
-                if (!getDetailQuantity()) add(detailItem());
-                location.href = checkoutPath;
+            checkoutButton.addEventListener('click', event => {
+                event.preventDefault();
+                if (!getDetailQuantity() && !add(detailItem())) return;
+
+                const selectedItems = cart.filter(item =>
+                    item.link === detailKey
+                    || item.key === detailKey
+                    || item.key?.startsWith(`${detailKey}|`)
+                );
+                if (!selectedItems.length) {
+                    window.alert('This item could not be prepared for checkout. Please try again.');
+                    return;
+                }
+
+                try {
+                    const selectedKeys = [...new Set(selectedItems.map(itemKey))];
+                    sessionStorage.setItem(SINGLE_ITEM_CHECKOUT_KEY, JSON.stringify(selectedKeys));
+                } catch (error) {
+                    console.error('Unable to prepare single-item checkout:', error);
+                    window.alert('This item could not be prepared for checkout. Please try again.');
+                    return;
+                }
+
+                const singleItemCheckoutUrl = new URL(checkoutPath, location.href);
+                singleItemCheckoutUrl.searchParams.set('checkout', 'single-item');
+                location.href = singleItemCheckoutUrl.href;
             });
         });
         updateDetailQuantity();
     }
 
     window.BiteRushCart = { add, change, get items() { return [...cart]; } };
+    window.addEventListener('biterush-menu-updated', refreshProductRatings);
+    refreshProductRatings();
     installCatalogControls();
+    const clearAccountCache = nextAccountId => {
+        [
+            'biterush_cart',
+            'biterush_favorites',
+            'biterush_voucher',
+            'biterush_delivery',
+            'biterush_saved_tip',
+            'biterush_last_order',
+            'biterush_orders',
+            'biterush_checkout_request',
+            'username',
+            'fullname',
+            'email',
+            'biterush_profile_image'
+        ].forEach(key => localStorage.removeItem(key));
+        sessionStorage.removeItem(SINGLE_ITEM_CHECKOUT_KEY);
+        if (nextAccountId === undefined) localStorage.removeItem('biterush_active_user_id');
+        else localStorage.setItem('biterush_active_user_id', nextAccountId);
+        cart = [];
+        render();
+    };
+    loadDatabaseCatalog().catch(error => {
+        console.error('Unable to load the menu catalog from the server:', error);
+    }).then(() => fetch(`${apiUrl}?action=cart`, {
+        credentials: 'same-origin',
+        headers: accountHeaders()
+    }))
+        .then(async response => {
+            if (response.status === 401) {
+                if (localStorage.getItem('biterush_active_user_id')) clearAccountCache();
+                return null;
+            }
+            const result = await response.json();
+            if (response.status === 409
+                && ['account_context_changed', 'account_context_missing'].includes(result.code)) {
+                if (await recoverAccountContext()) return null;
+            }
+            if (!response.ok) throw new Error(result.error || 'Could not load your cart.');
+            return result;
+        })
+        .then(result => {
+            if (!result || !Array.isArray(result.items)) return;
+            cart = result.items.map(item => {
+                const product = databaseProducts.get(normalizeTitle(item.title));
+                return product
+                    ? { ...item, title: product.title, productId: Number(product.id), price: Number(product.price),
+                        img: catalogImageUrl(product.image) || item.img }
+                    : item;
+            });
+            localStorage.setItem(CART_KEY, JSON.stringify(cart));
+            render();
+        })
+        .catch(error => console.error('Unable to load cart from the server:', error));
     window.addEventListener('storage', event => {
+        if (event.key === 'biterush_active_user_id') {
+            if (window.BiteRushApi) return;
+            if (event.newValue === initialAccountId) return;
+            location.reload();
+            return;
+        }
         if (isProjectRootPage && event.key === CUSTOM_PRODUCTS_KEY) {
             location.reload();
             return;

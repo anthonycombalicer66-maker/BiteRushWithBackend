@@ -2272,3 +2272,41 @@ nav {
         min-width: 0;
     }
 }
+
+.featured-menu .food-card {
+    height: auto;
+    min-height: 164px;
+    padding: 10px;
+}
+
+.featured-menu .food-img {
+    width: 140px;
+    height: 140px;
+    flex: 0 0 140px;
+}
+
+.featured-menu .food-info {
+    min-width: 0;
+}
+
+.featured-menu .food-title {
+    font-size: 20px;
+}
+
+.featured-menu .hover-content {
+    height: 26px;
+    margin: 2px 0 4px;
+}
+
+.featured-menu .food-description {
+    overflow-wrap: anywhere;
+}
+
+.featured-menu .food-meta {
+    gap: 2px;
+    margin-bottom: 2px;
+}
+
+.featured-menu .price-container {
+    height: 24px;
+}

@@ -16,7 +16,6 @@
         </a>
         <h1>Admin sign in</h1>
         <p class="admin-login-intro">Sign in with your administrator account to continue to the dashboard.</p>
-        <p class="admin-login-security-notice">This front-end sign-in is not secure for real customer data.</p>
         <form id="adminLoginForm">
             <label for="adminUsername">Username</label>
             <input id="adminUsername" name="username" type="text" autocomplete="username" required>
@@ -26,6 +25,7 @@
             <p class="admin-login-error" id="loginError" role="alert" aria-live="polite"></p>
         </form>
     </main>
+    <script src="../api.js?v=7"></script>
     <script src="./login.js" defer></script>
 </body>
 </html>

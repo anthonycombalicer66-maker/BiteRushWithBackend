@@ -42,20 +42,28 @@
         </section>
     </main>
 
+    <script src="../api.js?v=7"></script>
     <script>
-        document.getElementById('staffLoginForm').addEventListener('submit', event => {
+        document.getElementById('staffLoginForm').addEventListener('submit', async event => {
             event.preventDefault();
             const username = document.getElementById('staffUsername').value.trim();
             const password = document.getElementById('staffPassword').value;
             const authMessage = document.getElementById('authMessage');
-
-            if (username.toLowerCase() !== 'jonas' || password !== '12345') {
+            const button = event.currentTarget.querySelector('button[type="submit"]');
+            button.disabled = true;
+            authMessage.hidden = true;
+            try {
+                await window.BiteRushApi.request('staff-login', {
+                    method: 'POST',
+                    body: { username, password }
+                });
+                window.location.href = 'dashboard.html';
+            } catch (error) {
+                authMessage.textContent = error.message;
                 authMessage.hidden = false;
-                return;
+            } finally {
+                button.disabled = false;
             }
-
-            sessionStorage.setItem('biterush_staff_demo_session', username);
-            window.location.href = 'dashboard.html';
         });
     </script>
 </body>

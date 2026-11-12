@@ -350,6 +350,11 @@ button:focus-visible {
     font-size: 13px;
 }
 
+.order-message.is-locked {
+    background: #fff8df;
+    color: #594300;
+}
+
 .dashboard-disclaimer {
     margin: 16px 2px 0;
     color: #68717b;

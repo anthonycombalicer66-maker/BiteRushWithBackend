@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delivery Address</title>
     <!-- order matters: later stylesheets win. cart.css first, then page styles, then dark mode -->
-    <link rel="stylesheet" href="../Cart/cart.css">
+    <link rel="stylesheet" href="../Cart/cart.css?v=8">
     <link rel="stylesheet" href="styleadd.css?v=2">
     <link rel="stylesheet" href="../darkmode.css">
     <!-- LAYOUT FIX: lives in the HTML itself, after every stylesheet, so no CSS file can override it -->
@@ -209,8 +209,9 @@
 
     </main>
 
-    <script src="../Cart/cart.js"></script>
-    <script src="../Cart/checkout.js"></script>
+    <script src="../Cart/cart.js?v=12"></script>
+    <script src="../api.js?v=7"></script>
+    <script src="../Cart/checkout.js?v=6"></script>
     <script src="delivery.js"></script>
 </body>
 

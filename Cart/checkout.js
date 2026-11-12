@@ -6,6 +6,22 @@
         const ordersKey = 'biterush_orders';
         const overridesKey = 'biterush_product_overrides';
         const customProductsKey = 'biterush_custom_products';
+        const checkoutKey = 'biterush_checkout_request';
+        const singleItemCheckoutKey = 'biterush_single_checkout_keys';
+        const singleItemCheckout = new URLSearchParams(window.location.search).get('checkout') === 'single-item';
+        const singleItemKeys = (() => {
+            if (!singleItemCheckout) return null;
+            try {
+                const keys = JSON.parse(sessionStorage.getItem(singleItemCheckoutKey) || 'null');
+                if (!Array.isArray(keys) || keys.some(itemKey => typeof itemKey !== 'string')) {
+                    throw new Error('The selected checkout items are invalid.');
+                }
+                return new Set(keys);
+            } catch (error) {
+                console.error('Unable to read the selected checkout items:', error);
+                return new Set();
+            }
+        })();
         const vouchers = {
             voucher20: { rate: 0.20, cap: 500, minimum: 249 },
             voucher15: { rate: 0.15, cap: 600, minimum: 199 }
@@ -13,6 +29,7 @@
         const read = () => {
             try {
                 const value = JSON.parse(localStorage.getItem(key) || '[]');
+                const overrides = JSON.parse(localStorage.getItem(overridesKey) || '{}');
                 return Array.isArray(value)
                     ? value
                         .filter(item => item && item.title && item.img)
@@ -32,6 +49,42 @@
             }
         };
         const money = value => `₱ ${Number(value).toFixed(2)}`;
+        const cartItemKey = item => item.key || item.link || `${item.title}|${item.img}`;
+        const selectCheckoutItems = items => singleItemCheckout
+            ? items.filter(item => singleItemKeys.has(cartItemKey(item)))
+            : items;
+        const removeOrderedItems = (items, orderedItems) => {
+            const orderedQuantities = new Map();
+            orderedItems.forEach(item => {
+                const itemKey = cartItemKey(item);
+                orderedQuantities.set(itemKey, (orderedQuantities.get(itemKey) || 0) + item.quantity);
+            });
+            return items.flatMap(item => {
+                const itemKey = cartItemKey(item);
+                const orderedQuantity = orderedQuantities.get(itemKey) || 0;
+                if (!orderedQuantity) return [item];
+                const remainingQuantity = item.quantity - orderedQuantity;
+                orderedQuantities.set(itemKey, Math.max(0, orderedQuantity - item.quantity));
+                return remainingQuantity > 0 ? [{ ...item, quantity: remainingQuantity }] : [];
+            });
+        };
+        const checkoutRequestId = payload => {
+            const fingerprint = JSON.stringify(payload);
+            let previous = null;
+            try {
+                previous = JSON.parse(localStorage.getItem(checkoutKey) || 'null');
+            } catch (error) {
+                console.error('Unable to read the pending checkout request:', error);
+            }
+            if (previous?.fingerprint === fingerprint && typeof previous.key === 'string') {
+                return previous.key;
+            }
+            const bytes = new Uint8Array(16);
+            window.crypto.getRandomValues(bytes);
+            const requestKey = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+            localStorage.setItem(checkoutKey, JSON.stringify({ fingerprint, key: requestKey }));
+            return requestKey;
+        };
         const setText = (selector, value) => {
             document.querySelectorAll(selector).forEach(element => {
                 element.textContent = value;
@@ -41,13 +94,11 @@
             const storedCart = read();
             const itemCard = document.querySelector('.item-card');
             const currentTitle = itemCard?.querySelector('.item-title')?.textContent.trim();
-            const reviewTitle = itemCard?.querySelector('.item-subtitle')?.textContent.trim()
-                || currentTitle;
             const currentPrice = Number(
                 itemCard?.querySelector('.item-price')?.textContent.replace(/[^\d.]/g, '')
             );
             const itemDetails = itemCard?.querySelector('.item-details');
-            if (itemDetails && currentTitle) {
+            if (itemDetails && currentTitle && !itemDetails.querySelector('.food-rating-link')) {
                 let reviewsLink = itemDetails.querySelector('.product-reviews-link');
                 if (!reviewsLink) {
                     reviewsLink = document.createElement('a');
@@ -60,7 +111,8 @@
                     itemDetails.appendChild(reviewsLink);
                 }
                 const reviewsUrl = new URL('../../../Feedback/index.html', window.location.href);
-                reviewsUrl.searchParams.set('food', reviewTitle);
+                reviewsUrl.searchParams.set('v', '4');
+                reviewsUrl.searchParams.set('food', currentTitle);
                 reviewsUrl.searchParams.set('path', window.location.pathname);
                 reviewsLink.href = reviewsUrl.href;
                 reviewsLink.querySelector('.product-reviews-name').textContent = currentTitle;
@@ -69,13 +121,20 @@
             }
             const current = storedCart.find(item => item.key === window.location.pathname
                 || item.link === window.location.pathname);
-            const cart = storedCart.length || !itemCard || !Number.isFinite(currentPrice)
-                ? storedCart
-                : [{
-                    title: currentTitle,
-                    price: currentPrice,
-                    quantity: 1
-                }];
+            const detailItems = itemCard && Number.isFinite(currentPrice)
+                ? storedCart.filter(item => item.link === window.location.pathname
+                    || item.key === window.location.pathname
+                    || item.key?.startsWith(`${window.location.pathname}|`))
+                : [];
+            const cart = singleItemCheckout
+                ? selectCheckoutItems(storedCart)
+                : itemCard && Number.isFinite(currentPrice)
+                    ? (detailItems.length ? detailItems : [{
+                        title: currentTitle,
+                        price: currentPrice,
+                        quantity: 1
+                    }])
+                    : storedCart;
             const subtotal = cart.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
             const selectedVoucher = vouchers[localStorage.getItem(voucherKey)];
             const discount = selectedVoucher && subtotal >= selectedVoucher.minimum
@@ -177,7 +236,9 @@
                     });
                 } else {
                     const empty = document.createElement('strong');
-                    empty.textContent = 'Your cart is empty.';
+                    empty.textContent = singleItemCheckout
+                        ? 'The selected item could not be loaded. Return to the product page and try again.'
+                        : 'Your cart is empty.';
                     summary.appendChild(empty);
                 }
             }
@@ -201,16 +262,18 @@
                 orderButton.disabled = cart.length === 0;
                 if (!orderButton.dataset.orderHandlerAttached) {
                     orderButton.dataset.orderHandlerAttached = 'true';
-                    orderButton.addEventListener('click', event => {
+                    orderButton.addEventListener('click', async event => {
                         event.preventDefault();
-                        const orderedCart = read();
+                        const orderedCart = selectCheckoutItems(read());
                         if (!orderedCart.length) return;
+                        orderButton.disabled = true;
                         let overrides = {};
                         try {
                             overrides = JSON.parse(localStorage.getItem(overridesKey) || '{}');
                         } catch (error) {
                             console.error('Unable to read product availability:', error);
                             window.alert('We could not verify menu availability. Please reload checkout and try again.');
+                            orderButton.disabled = false;
                             return;
                         }
                         const unavailable = orderedCart.find(item => {
@@ -219,6 +282,7 @@
                         });
                         if (unavailable) {
                             window.alert(`${unavailable.title} is currently unavailable. Please remove it from your cart before ordering.`);
+                            orderButton.disabled = false;
                             return;
                         }
 
@@ -253,128 +317,66 @@
                             addressInput?.setCustomValidity('Enter a complete delivery address (at least 8 characters).');
                             addressInput?.reportValidity();
                             addressInput?.focus();
+                            orderButton.disabled = false;
                             return;
                         }
                         addressInput?.setCustomValidity('');
                         const instructions = document.getElementById('deliveryInstructions')?.value.trim() || '';
-                        const etaByDelivery = {
-                            Priority: '15–30 minutes',
-                            Standard: '20–45 minutes',
-                            Saver: '30–45 minutes',
-                            Schedule: 'As scheduled'
-                        };
-                        const etaMinutesByDelivery = {
-                            Priority: 23,
-                            Standard: 33,
-                            Saver: 38
-                        };
-                        const etaMinutes = etaMinutesByDelivery[deliveryLabel];
-                        const etaAt = etaMinutes
-                            ? new Date(Date.now() + etaMinutes * 60 * 1000).toISOString()
-                            : null;
-                        const customProducts = JSON.parse(localStorage.getItem(customProductsKey) || '[]');
-                        const stockProducts = Array.isArray(customProducts) ? customProducts : [];
-                        const normalizeTitle = title => String(title || '').trim().toLocaleLowerCase();
-                        const stockFor = item => {
-                            const override = overrides[normalizeTitle(item.title)];
-                            if (override && override.stock !== undefined && override.stock !== null && override.stock !== ''
-                                && Number.isFinite(Number(override.stock))) {
-                                return Math.max(0, Number(override.stock));
-                            }
-                            const customProduct = stockProducts.find(product =>
-                                product && normalizeTitle(product.title) === normalizeTitle(item.title)
-                            );
-                            return customProduct && customProduct.stock !== undefined && customProduct.stock !== null
-                                && customProduct.stock !== '' && Number.isFinite(Number(customProduct.stock))
-                                ? Math.max(0, Number(customProduct.stock))
-                                : null;
-                        };
-                        for (const item of orderedCart) {
-                            const stock = stockFor(item);
-                            if (stock !== null && Number(item.quantity) > stock) {
-                                window.alert(`${item.title} has insufficient stock. Only ${stock} remaining.`);
-                                return;
-                            }
-                        }
-                        const receipt = {
-                            id: `BR-${Date.now().toString(36).toUpperCase()}`,
-                            createdAt: new Date().toISOString(),
-                            status: 'received',
-                            items: orderedCart.map(item => ({
-                                title: item.title,
-                                reviewTitle: item.reviewTitle || item.title,
-                                price: item.price,
-                                quantity: item.quantity,
-                                instructions: item.instructions || '',
-                                img: item.img,
-                                link: item.link || '',
-                                key: item.key || ''
-                            })),
-                            subtotal,
-                            discount,
-                            deliveryFee,
-                            serviceFee,
-                            tip,
-                            total,
+                        const requestBody = {
+                            items: orderedCart,
+                            voucher: localStorage.getItem(voucherKey) || '',
                             deliveryLabel,
-                            eta: etaByDelivery[deliveryLabel] || '20–45 minutes',
-                            etaAt,
+                            deliveryAdjustment: Number(deliveryState.adjustment) || 0,
+                            tip,
                             address,
                             instructions,
                             payment: deliveryState.payment || 'Cash'
                         };
-
-                        let previousStorage = {};
                         try {
-                            previousStorage = Object.fromEntries(
-                                [ordersKey, receiptKey, key, voucherKey, deliveryKey, overridesKey, customProductsKey]
-                                    .map(storageKey => [storageKey, localStorage.getItem(storageKey)])
-                            );
-                            orderedCart.forEach(item => {
-                                const titleKey = normalizeTitle(item.title);
-                                const stock = stockFor(item);
-                                if (stock === null) return;
-                                const remaining = Math.max(0, stock - Number(item.quantity));
-                                overrides[titleKey] = {
-                                    ...(overrides[titleKey] || {}),
-                                    stock: remaining
-                                };
-                                const customIndex = stockProducts.findIndex(product =>
-                                    product && normalizeTitle(product.title) === titleKey
-                                );
-                                if (customIndex !== -1) {
-                                    stockProducts[customIndex] = {
-                                        ...stockProducts[customIndex],
-                                        stock: remaining
-                                    };
-                                }
+                            requestBody.idempotencyKey = checkoutRequestId(requestBody);
+                            const { order: receipt } = await window.BiteRushApi.request('orders', {
+                                method: 'POST',
+                                body: requestBody
                             });
-                            localStorage.setItem(overridesKey, JSON.stringify(overrides));
-                            localStorage.setItem(customProductsKey, JSON.stringify(stockProducts));
-                            const orderHistory = JSON.parse(localStorage.getItem(ordersKey) || '[]');
-                            if (!Array.isArray(orderHistory)) {
-                                throw new Error('Saved order history is not a valid list.');
+                            localStorage.removeItem(checkoutKey);
+                            try {
+                                localStorage.setItem(receiptKey, JSON.stringify(receipt));
+                                const history = JSON.parse(localStorage.getItem(ordersKey) || '[]');
+                                localStorage.setItem(ordersKey, JSON.stringify([
+                                    receipt,
+                                    ...(Array.isArray(history) ? history : [])
+                                        .filter(order => order && order.id !== receipt.id)
+                                ]));
+                            } catch (cacheError) {
+                                console.error('Order was saved, but its local display cache could not be updated:', cacheError);
                             }
-                            const updatedHistory = [
-                                receipt,
-                                ...orderHistory.filter(order => order && order.id !== receipt.id)
-                            ];
-                            localStorage.setItem(ordersKey, JSON.stringify(updatedHistory));
-                            localStorage.setItem(receiptKey, JSON.stringify(receipt));
-                            localStorage.removeItem(key);
+                            const remainingCart = singleItemCheckout
+                                ? removeOrderedItems(read(), orderedCart)
+                                : [];
+                            if (singleItemCheckout) {
+                                localStorage.setItem(key, JSON.stringify(remainingCart));
+                                try {
+                                    sessionStorage.removeItem(singleItemCheckoutKey);
+                                } catch (storageError) {
+                                    console.error('Order was saved, but selected checkout state could not be cleared:', storageError);
+                                }
+                            } else {
+                                localStorage.removeItem(key);
+                            }
                             localStorage.removeItem(voucherKey);
                             localStorage.removeItem(deliveryKey);
+                            try {
+                                await window.BiteRushApi.request('cart', {
+                                    method: 'PUT',
+                                    body: { items: remainingCart }
+                                });
+                            } catch (cartError) {
+                                console.error('Order was saved, but server cart cleanup failed:', cartError);
+                            }
                         } catch (error) {
                             console.error('Unable to save completed order:', error);
-                            Object.entries(previousStorage).forEach(([storageKey, previousValue]) => {
-                                try {
-                                    if (previousValue === null) localStorage.removeItem(storageKey);
-                                    else localStorage.setItem(storageKey, previousValue);
-                                } catch (restoreError) {
-                                    console.error(`Unable to restore ${storageKey} after order save failed:`, restoreError);
-                                }
-                            });
-                            window.alert('We could not save your order confirmation. Please try again.');
+                            window.alert(error.message || 'We could not save your order. Please sign in and try again.');
+                            orderButton.disabled = false;
                             return;
                         }
 

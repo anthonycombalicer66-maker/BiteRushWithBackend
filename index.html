@@ -4,8 +4,8 @@
     <script src="darkmode.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="BiteRushHomePage/HomePageKulay.css">
-    <link rel="stylesheet" href="Cart/cart.css">
+    <link rel="stylesheet" href="BiteRushHomePage/HomePageKulay.css?v=3">
+    <link rel="stylesheet" href="Cart/cart.css?v=8">
     <title>BiteRush - Home</title>
     <link rel="stylesheet" href="darkmode.css">
     <link rel="stylesheet" href="BackButtons.css">
@@ -131,7 +131,7 @@
         </section>
 
         <!-- Food Menu Section -->
-        <section class="menu-container">
+        <section class="menu-container featured-menu">
             <h2 class="section-heading">Featured Menu</h2>
             <div class="food-grid">
 
@@ -290,8 +290,11 @@
     <!-- Interactive Cart & Favorites Logic -->
     <script>
         // ---- Favorites Logic ----
-        const FAV_KEY = 'biterush_favorites';
-        let favorites = JSON.parse(localStorage.getItem(FAV_KEY) || '[]');
+        const getFavoritesStorageKey = () => {
+            const activeUserId = localStorage.getItem('biterush_active_user_id');
+            return activeUserId ? `biterush_favorites_${activeUserId}` : 'biterush_favorites_guest';
+        };
+        let favorites = JSON.parse(localStorage.getItem(getFavoritesStorageKey()) || '[]');
 
         function isFavorited(title) {
             return favorites.some(f => f.title === title);
@@ -303,6 +306,7 @@
         }
 
         function toggleFavorite(card, btn) {
+            favorites = JSON.parse(localStorage.getItem(getFavoritesStorageKey()) || '[]');
             const title = card.getAttribute('data-title');
             const price = card.getAttribute('data-price');
             const img = card.getAttribute('data-img');
@@ -315,7 +319,7 @@
                 favorites.push({ title, price, img, link });
                 btn.classList.add('favorited');
             }
-            localStorage.setItem(FAV_KEY, JSON.stringify(favorites));
+            localStorage.setItem(getFavoritesStorageKey(), JSON.stringify(favorites));
             updateFavBadge();
         }
 
@@ -389,6 +393,9 @@
                 if (event.key === 'Escape') searchButton.click();
             });
         })();
-    </script>        <script src="Cart/cart.js"></script>
+    </script>
+    <script src="api.js?v=7"></script>
+    <script src="Cart/cart.js?v=12"></script>
+    <script src="favorites-sync.js?v=5"></script>
     </body>
 </html>

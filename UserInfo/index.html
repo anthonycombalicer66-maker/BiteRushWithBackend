@@ -101,9 +101,9 @@
         </div>
     </main>
 
+    <script src="../api.js?v=7"></script>
     <!-- State Machine & Data Persistence Script Logic -->
     <script>
-        // DOM Element selectors
         const formInputs = document.querySelectorAll('#username, #fullname, #email');
         const editBtn = document.getElementById('edit-btn');
         const cancelBtn = document.getElementById('cancel-btn');
@@ -112,46 +112,53 @@
         const profileMessage = document.getElementById('profile-message');
         const profileImageInput = document.getElementById('profileImageInput');
         const avatarImage = document.querySelector('.avatar-wrapper img');
-        const authSessionKey = 'biterush_demo_authenticated';
-        const accountStorageKey = 'biterush_demo_accounts';
         const profileImageKey = 'biterush_profile_image';
         const defaultProfileImage = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 160'%3E%3Crect width='160' height='160' rx='80' fill='%23f5c430'/%3E%3Ccircle cx='80' cy='62' r='26' fill='%23ffffff'/%3E%3Cpath d='M43 122c8-20 27-32 37-32s29 12 37 32' fill='%23ffffff'/%3E%3C/svg%3E";
-
         let oldFormCache = {};
+        let currentProfileImage = null;
 
-        function updateSavedProfileImage(source) {
+        async function updateSavedProfileImage(source) {
             if (!source) return;
-            const profileImage = source.startsWith('data:') || source.startsWith('blob:') || source.startsWith('http') || source.startsWith('file:')
+            const profileImage = source === defaultProfileImage ? null
+                : source.startsWith('data:') || source.startsWith('blob:') || source.startsWith('http') || source.startsWith('file:')
                 ? source
                 : new URL(source, window.location.href).href;
-            const accounts = JSON.parse(localStorage.getItem(accountStorageKey) || '[]');
-            const email = (localStorage.getItem('email') || '').toLowerCase();
-            const currentAccount = accounts.find(account => account.email && account.email.toLowerCase() === email);
-
-            localStorage.setItem(profileImageKey, profileImage);
-            if (avatarImage) avatarImage.src = profileImage;
-            if (currentAccount) {
-                currentAccount.profileImage = profileImage;
-                localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
+            try {
+                const { user } = await window.BiteRushApi.request('profile', {
+                    method: 'PATCH',
+                    body: {
+                        username: document.getElementById('username').value,
+                        fullname: document.getElementById('fullname').value,
+                        email: document.getElementById('email').value,
+                        profileImage
+                    }
+                });
+                currentProfileImage = user.profileImage || defaultProfileImage;
+                localStorage.setItem(profileImageKey, currentProfileImage);
+                if (avatarImage) avatarImage.src = currentProfileImage;
+            } catch (error) {
+                profileMessage.textContent = error.message;
+                profileMessage.hidden = false;
             }
         }
 
-        function applyCurrentProfileImage() {
-            const savedProfileImage = localStorage.getItem(profileImageKey) || defaultProfileImage;
-            if (avatarImage) avatarImage.src = savedProfileImage;
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            const email = localStorage.getItem('email') || '';
-            if (!email || localStorage.getItem(authSessionKey) !== email) {
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const { user } = await window.BiteRushApi.request('me');
+                document.getElementById('username').value = user.username;
+                document.getElementById('fullname').value = user.fullname;
+                document.getElementById('email').value = user.email;
+                currentProfileImage = user.profileImage || defaultProfileImage;
+                if (avatarImage) avatarImage.src = currentProfileImage;
+                avatarHandle.textContent = '@' + user.username;
+                localStorage.setItem('username', user.username);
+                localStorage.setItem('fullname', user.fullname);
+                localStorage.setItem('email', user.email);
+                localStorage.setItem(profileImageKey, currentProfileImage);
+            } catch (error) {
+                console.error('Unable to load account profile:', error);
                 window.location.replace('../Login/index.html');
-                return;
             }
-            document.getElementById('username').value = localStorage.getItem('username') || '';
-            document.getElementById('fullname').value = localStorage.getItem('fullname') || '';
-            document.getElementById('email').value = localStorage.getItem('email') || '';
-            applyCurrentProfileImage();
-            avatarHandle.textContent = '@' + document.getElementById('username').value;
         });
 
         editBtn.addEventListener('click', () => {
@@ -159,7 +166,6 @@
                 oldFormCache[input.id] = input.value;
                 input.removeAttribute('disabled');
             });
-
             formInputs[0].focus();
             editBtn.classList.add('hide-element');
             cancelBtn.classList.remove('hide-element');
@@ -175,50 +181,31 @@
             toggleActionInterface();
         });
 
-        confirmBtn.addEventListener('click', () => {
+        confirmBtn.addEventListener('click', async () => {
             profileMessage.hidden = true;
             if (!document.getElementById('profile-form').reportValidity()) return;
-
+            confirmBtn.disabled = true;
             try {
-                const username = document.getElementById('username').value.trim().toLowerCase();
-                const fullname = document.getElementById('fullname').value.trim();
-                const email = document.getElementById('email').value.trim().toLowerCase();
-                const accounts = JSON.parse(localStorage.getItem(accountStorageKey) || '[]');
-                const currentAccount = accounts.find(account => account.email === oldFormCache.email.toLowerCase());
-                if (!currentAccount) {
-                    profileMessage.textContent = 'Your account could not be found in this browser. Sign in again before editing your profile.';
-                    profileMessage.hidden = false;
-                    return;
-                }
-                const conflict = accounts.some(account =>
-                    account !== currentAccount &&
-                    (account.email === email || account.username === username)
-                );
-                if (conflict) {
-                    profileMessage.textContent = 'That email or username is already used by another account in this browser.';
-                    profileMessage.hidden = false;
-                    return;
-                }
-
-                currentAccount.username = username;
-                currentAccount.fullname = fullname;
-                currentAccount.email = email;
-                if (!currentAccount.profileImage) {
-                    currentAccount.profileImage = localStorage.getItem(profileImageKey) || defaultProfileImage;
-                }
-                localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
-                localStorage.setItem('username', username);
-                localStorage.setItem('fullname', fullname);
-                localStorage.setItem('email', email);
-                localStorage.setItem(authSessionKey, email);
-                avatarHandle.textContent = '@' + username;
+                const { user } = await window.BiteRushApi.request('profile', {
+                    method: 'PATCH',
+                    body: {
+                        username: document.getElementById('username').value.trim(),
+                        fullname: document.getElementById('fullname').value.trim(),
+                        email: document.getElementById('email').value.trim(),
+                        profileImage: currentProfileImage === defaultProfileImage ? null : currentProfileImage
+                    }
+                });
+                localStorage.setItem('username', user.username);
+                localStorage.setItem('fullname', user.fullname);
+                localStorage.setItem('email', user.email);
+                avatarHandle.textContent = '@' + user.username;
                 formInputs.forEach(input => input.setAttribute('disabled', 'true'));
                 toggleActionInterface();
             } catch (error) {
-                profileMessage.textContent = error instanceof DOMException && error.name === 'QuotaExceededError'
-                    ? 'This browser is out of storage space. Free space and try again.'
-                    : 'Could not save your profile in this browser. Check storage permissions and try again.';
+                profileMessage.textContent = error.message;
                 profileMessage.hidden = false;
+            } finally {
+                confirmBtn.disabled = false;
             }
         });
 
@@ -229,7 +216,12 @@
         profileImageInput.addEventListener('change', event => {
             const file = event.target.files && event.target.files[0];
             if (!file) return;
-
+            if (file.size > 1100000) {
+                profileMessage.textContent = 'Choose an image smaller than 1.1 MB.';
+                profileMessage.hidden = false;
+                profileImageInput.value = '';
+                return;
+            }
             const reader = new FileReader();
             reader.onload = () => {
                 updateSavedProfileImage(String(reader.result));
@@ -248,28 +240,25 @@
             confirmBtn.classList.add('hide-element');
         }
 
-        document.getElementById('signout-btn').addEventListener('click', () => {
-            ['username', 'fullname', 'email', authSessionKey, profileImageKey].forEach(key => localStorage.removeItem(key));
+        document.getElementById('signout-btn').addEventListener('click', async () => {
+            try {
+                await window.BiteRushApi.request('logout', { method: 'POST', body: {} });
+            } catch (error) {
+                console.error('Unable to end customer session:', error);
+            }
+            ['username', 'fullname', 'email', profileImageKey].forEach(key => localStorage.removeItem(key));
             window.location.href = '../Login/index.html';
         });
 
-        document.getElementById('delete-account-btn').addEventListener('click', () => {
-            if (!window.confirm('Delete this account? Your profile will be permanently removed from this browser.')) return;
+        document.getElementById('delete-account-btn').addEventListener('click', async () => {
+            if (!window.confirm('Deactivate this account and remove its saved cart and favorites? Order, feedback, and audit history will be retained with personal account details anonymized.')) return;
             try {
-                const accounts = JSON.parse(localStorage.getItem(accountStorageKey) || '[]');
-                const currentEmail = (localStorage.getItem('email') || '').toLowerCase();
-                const retainedAccounts = accounts.filter(account =>
-                    !(account.email && account.email.toLowerCase() === currentEmail)
-                );
-                localStorage.setItem(accountStorageKey, JSON.stringify(retainedAccounts));
-                ['username', 'fullname', 'email', authSessionKey, profileImageKey].forEach(key =>
-                    localStorage.removeItem(key)
-                );
+                await window.BiteRushApi.request('account', { method: 'DELETE', body: {} });
+                ['username', 'fullname', 'email', profileImageKey].forEach(key => localStorage.removeItem(key));
                 window.location.href = '../Login/index.html';
             } catch (error) {
-                profileMessage.textContent = 'The account could not be deleted.';
+                profileMessage.textContent = error.message;
                 profileMessage.hidden = false;
-                console.error('Unable to delete account:', error);
             }
         });
     </script>

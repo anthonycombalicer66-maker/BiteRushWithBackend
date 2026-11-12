@@ -393,6 +393,12 @@ body.dark-theme {
     color: #ffe27a !important;
 }
 
+:is(html.dark-theme, body.dark-theme) .item-card .food-rating-link {
+    border-color: #756329;
+    background-color: #3a3421;
+    color: #ffe27a !important;
+}
+
 :is(html.dark-theme, body.dark-theme) .star-rating label {
     color: #84909b !important;
 }
