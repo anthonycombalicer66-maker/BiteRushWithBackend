@@ -6,6 +6,10 @@
     align-items: start;
 }
 
+.menu-container {
+    width: 100%;
+}
+
 .food-card {
     min-width: 0;
     height: 164px;
@@ -30,7 +34,8 @@
 }
 
 .food-card .hover-content {
-    height: 24px;
+    height: 30px;
+    flex: 0 0 30px;
     margin: 2px 0 3px;
     display: flex;
     align-items: center;
@@ -46,20 +51,29 @@
 
 .food-card .food-description {
     display: none;
+    width: 100%;
     margin: 0;
+    overflow: hidden;
     color: #333;
     font-size: 10px;
     font-weight: 500;
-    line-height: 1.25;
+    line-height: 1.2;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 
 .food-card:hover .food-category {
     display: none;
 }
 
-.food-card:hover .food-description {
-    display: block;
+.food-card:hover .food-description,
+.food-card:focus-within .food-description {
+    display: -webkit-box;
     animation: fadeInText .2s ease-in-out;
+}
+
+.food-card:focus-within .food-category {
+    display: none;
 }
 
 .food-card .meta-item {
@@ -150,6 +164,7 @@
 }
 
 .food-card .food-title {
+    flex: 0 0 auto;
     font-size: 22px;
     font-weight: 900;
     color: #000;
@@ -158,6 +173,7 @@
 
 .food-card .food-meta {
     display: flex;
+    flex: 0 0 auto;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
@@ -204,6 +220,7 @@
 
 .food-card .price-container {
     display: flex;
+    flex: 0 0 28px;
     align-items: center;
     justify-content: flex-start;
     gap: 12px;
@@ -271,7 +288,8 @@
     }
 
     .food-card .hover-content {
-        height: 18px;
+        height: 30px;
+        flex-basis: 30px;
         margin: 1px 0;
     }
 

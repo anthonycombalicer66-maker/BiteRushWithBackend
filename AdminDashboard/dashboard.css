@@ -1082,13 +1082,27 @@ body:has(.admin-login:not([hidden])) {
 }
 
 .menu-undo-row {
+    display: flex;
+    align-items: center;
     justify-content: space-between;
+    gap: 10px;
     margin: -4px 0 14px;
 }
 
 .menu-undo-row .inline-message {
-    flex: 1 1 240px;
+    flex: 1 1 220px;
     margin: 0;
+}
+
+.menu-undo-row .table-action-button {
+    width: auto;
+    min-height: 38px;
+    margin-left: auto;
+    padding: 0 14px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 750;
+    white-space: nowrap;
 }
 
 .data-tool-actions {
@@ -2141,27 +2155,28 @@ body:has(.admin-login:not([hidden])) {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 16px;
+    gap: 18px;
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
-    margin-bottom: 16px;
-    padding: clamp(16px, 2.5vw, 22px);
-    border: 1px solid #e4e9ef;
-    border-radius: 14px;
-    background: linear-gradient(145deg, #fff, #fafbfd);
-    box-shadow: 0 8px 22px rgba(27, 39, 52, .045);
+    margin-bottom: 18px;
+    padding: clamp(18px, 2.4vw, 24px);
+    border: 1px solid #e1e6ec;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 10px 26px rgba(17, 24, 39, .03);
 }
 
 .product-form-intro h3 {
     margin: 0;
     color: var(--admin-ink);
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 850;
+    letter-spacing: -.02em;
 }
 
 .product-form-intro p {
-    margin: 4px 0 0;
+    margin: 6px 0 0;
     color: var(--admin-muted);
     font-size: 11px;
     line-height: 1.5;
@@ -2170,7 +2185,7 @@ body:has(.admin-login:not([hidden])) {
 .product-form-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
+    gap: 18px 16px;
     align-items: start;
 }
 
@@ -2178,10 +2193,10 @@ body:has(.admin-login:not([hidden])) {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    color: #384554;
-    font-size: 11px;
-    font-weight: 750;
+    gap: 7px;
+    color: #334150;
+    font-size: 12px;
+    font-weight: 700;
 }
 
 .product-form-field--wide {
@@ -2193,25 +2208,36 @@ body:has(.admin-login:not([hidden])) {
 .product-form-field textarea {
     width: 100%;
     min-width: 0;
-    min-height: 40px;
-    padding: 9px 11px;
-    border: 1px solid #dfe4e9;
-    border-radius: 9px;
-    background: #fff;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid #dfe5eb;
+    border-radius: 10px;
+    background: #f9fafb;
     color: var(--admin-ink);
     font: inherit;
     font-size: 12px;
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.product-form-field input:not([type="checkbox"]):focus,
+.product-form-field select:focus,
+.product-form-field textarea:focus {
+    border-color: #b9c2cd;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(255, 210, 51, .12);
+    outline: none;
 }
 
 .product-form-field textarea {
-    min-height: 82px;
+    min-height: 86px;
     resize: vertical;
 }
 
 .product-form-field input[type="file"] {
-    min-height: 40px;
-    padding: 6px;
+    min-height: 44px;
+    padding: 9px 10px;
     font-size: 11px;
+    background: #fff;
 }
 
 .product-form-hint {
@@ -2227,30 +2253,41 @@ body:has(.admin-login:not([hidden])) {
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 14px;
-    padding-top: 13px;
-    border-top: 1px solid #edf0f3;
+    padding-top: 14px;
+    border-top: 1px solid #edf1f4;
 }
 
 .product-form-toggles {
     display: flex;
     flex-wrap: wrap;
     gap: 10px 20px;
+    align-items: center;
 }
 
 .product-form-toggle {
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    min-height: 28px;
     color: #384554;
     font-size: 11px;
     font-weight: 700;
 }
 
 .product-form-toggle input {
-    width: 17px;
-    height: 17px;
+    width: 16px;
+    height: 16px;
     margin: 0;
+    flex: 0 0 16px;
     accent-color: #d7a900;
+    cursor: pointer;
+}
+
+.product-form-footer .admin-primary-button {
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 9px;
+    font-size: 12px;
 }
 
 #productMessage.is-error {

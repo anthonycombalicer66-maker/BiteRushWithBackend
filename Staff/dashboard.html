@@ -25,228 +25,53 @@
             <div>
                 <p class="eyebrow">STAFF DASHBOARD</p>
                 <h1>Welcome, <span id="staffName">Staff</span></h1>
-                <p>Review the latest order saved on this device.</p>
+                <p>Search, assign, update, and fulfill customer orders.</p>
             </div>
         </section>
-
-        <section class="order-card" aria-labelledby="orderHeading">
-            <div class="order-card-header">
+        <section class="order-card fulfillment-card" aria-labelledby="ordersHeading">
+            <div class="order-card-header fulfillment-heading">
                 <div>
-                    <p class="eyebrow">LATEST CUSTOMER ORDER</p>
-                    <h2 id="orderHeading">Order details</h2>
+                    <p class="eyebrow">FULFILLMENT</p>
+                    <h2 id="ordersHeading">Orders</h2>
                 </div>
-                <span class="order-status" id="orderStatus">Loading…</span>
+                <span class="order-status" id="orderCount">0 orders</span>
+            </div>
+            <div class="fulfillment-layout">
+                <div class="orders-list-column">
+                    <div class="orders-toolbar">
+                        <input id="orderSearch" type="search" placeholder="Search order or address" aria-label="Search orders">
+                        <select id="orderFilter" aria-label="Filter orders by status">
+                            <option value="all">All statuses</option>
+                            <option value="received">Order received</option>
+                            <option value="preparing">Preparing</option>
+                            <option value="on_the_way">On the way</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                        <button class="secondary-button" id="selectPageButton" type="button">Select page</button>
+                    </div>
+                    <div class="bulk-order-actions" id="bulkActions" hidden>
+                        <strong><span id="selectedCount">0</span> selected</strong>
+                        <select id="bulkStatus" aria-label="Bulk order status">
+                            <option value="preparing">Preparing</option>
+                            <option value="on_the_way">On the way</option>
+                            <option value="delivered">Delivered</option>
+                        </select>
+                        <button class="save-status-button" id="applyBulkButton" type="button">Apply status</button>
+                        <button class="secondary-button" id="clearSelectedButton" type="button">Clear</button>
+                    </div>
+                    <div id="ordersList" class="staff-orders-list" aria-live="polite"></div>
+                    <div class="pagination" id="ordersPagination"></div>
+                </div>
+                <section class="order-detail-panel" id="orderDetail" aria-label="Selected order details">
+                    <p class="empty-order">Select an order to view its details.</p>
+                </section>
             </div>
             <p class="order-message" id="orderMessage" role="status" aria-live="polite" hidden></p>
-            <p class="order-message is-locked" id="statusLockMessage" role="status" aria-live="polite" hidden></p>
-            <div id="orderDetails"></div>
-            <div class="order-status-editor" id="orderStatusEditor" hidden>
-                <label for="statusSelect">Update order status</label>
-                <div class="status-controls">
-                    <select id="statusSelect">
-                        <option value="received">Order received</option>
-                        <option value="preparing">Preparing</option>
-                        <option value="on_the_way">On the way</option>
-                        <option value="delivered">Delivered</option>
-                    </select>
-                    <button class="save-status-button" id="saveStatusButton" type="button">Save status</button>
-                </div>
-            </div>
         </section>
-
-        <p class="dashboard-disclaimer">Staff access and order status updates are handled by the BiteRush server.</p>
     </main>
 
-    <script src="../api.js?v=7"></script>
-    <script>
-        (async function () {
-            const receiptKey = 'biterush_last_order';
-            const ordersKey = 'biterush_orders';
-            const stages = ['received', 'preparing', 'on_the_way', 'delivered'];
-            const stageLabels = {
-                received: 'Order received',
-                preparing: 'Preparing',
-                on_the_way: 'On the way',
-                delivered: 'Delivered'
-            };
-            let staff;
-            try {
-                ({ staff } = await window.BiteRushApi.request('staff-session'));
-                const result = await window.BiteRushApi.request('admin-orders');
-                localStorage.setItem(ordersKey, JSON.stringify(result.orders));
-                if (result.orders.length) {
-                    localStorage.setItem(receiptKey, JSON.stringify(result.orders[0]));
-                }
-            } catch (error) {
-                console.error('Unable to load staff session or orders:', error);
-                window.location.replace('index.html');
-                return;
-            }
-
-            document.getElementById('staffName').textContent = staff.name;
-
-            const orderStatus = document.getElementById('orderStatus');
-            const orderDetails = document.getElementById('orderDetails');
-            const orderMessage = document.getElementById('orderMessage');
-            const statusSelect = document.getElementById('statusSelect');
-            const statusEditor = document.getElementById('orderStatusEditor');
-
-            function renderOrder() {
-                let receipt;
-                try {
-                    receipt = JSON.parse(localStorage.getItem(receiptKey) || 'null');
-                } catch (error) {
-                    console.error('Unable to read order details:', error);
-                    orderStatus.textContent = 'Unavailable';
-                    orderDetails.textContent = 'Order data could not be read from this browser.';
-                    statusEditor.hidden = true;
-                    return;
-                }
-
-                if (!receipt || !Array.isArray(receipt.items) || receipt.items.length === 0) {
-                    orderStatus.textContent = 'No order yet';
-                    orderDetails.innerHTML = '<p class="empty-order">No recent order is saved on this device.</p>';
-                    statusEditor.hidden = true;
-                    return;
-                }
-
-                const cancelled = receipt.status === 'cancelled';
-                const status = stages.includes(receipt.status) ? receipt.status : 'received';
-                orderStatus.textContent = cancelled ? 'Cancelled' : stageLabels[status];
-                const currentStageIndex = stages.indexOf(status);
-                statusSelect.replaceChildren(...stages.slice(currentStageIndex).map(stage => {
-                    const option = document.createElement('option');
-                    option.value = stage;
-                    option.textContent = stageLabels[stage];
-                    return option;
-                }));
-                statusSelect.value = status;
-                const lockedByAdmin = receipt.adminStatusLocked === true;
-                const noFurtherStages = currentStageIndex === stages.length - 1;
-                statusSelect.disabled = lockedByAdmin || cancelled || noFurtherStages;
-                document.getElementById('saveStatusButton').disabled =
-                    lockedByAdmin || cancelled || noFurtherStages;
-                const statusLockMessage = document.getElementById('statusLockMessage');
-                statusLockMessage.textContent = lockedByAdmin
-                    ? 'An admin has updated this order. Staff can no longer change its status.'
-                    : cancelled ? 'Cancelled orders cannot be changed.'
-                        : noFurtherStages ? 'Delivered orders cannot be changed by staff.' : '';
-                statusLockMessage.hidden = !lockedByAdmin && !cancelled && !noFurtherStages;
-                statusEditor.hidden = lockedByAdmin || cancelled;
-
-                const itemList = receipt.items.map(item => {
-                    const row = document.createElement('li');
-                    const quantity = Number(item.quantity) || 1;
-                    row.textContent = `${quantity} × ${item.title || 'Item'}`;
-                    return row;
-                });
-                const items = document.createElement('ul');
-                items.className = 'order-items';
-                itemList.forEach(item => items.appendChild(item));
-
-                const details = [
-                    ['Order number', receipt.id || '—'],
-                    ['Items', items],
-                    ['Total', typeof receipt.total === 'number' ? `$${receipt.total.toFixed(2)}` : '—'],
-                    ['Delivery address', receipt.address || 'No address provided'],
-                    ['Payment', receipt.payment || '—'],
-                    ['Placed', receipt.createdAt ? new Date(receipt.createdAt).toLocaleString() : '—']
-                ];
-                const list = document.createElement('dl');
-                list.className = 'order-details';
-                details.forEach(([label, value]) => {
-                    const row = document.createElement('div');
-                    row.className = 'detail-row';
-                    const term = document.createElement('dt');
-                    term.textContent = label;
-                    const description = document.createElement('dd');
-                    if (value instanceof HTMLElement) {
-                        description.appendChild(value);
-                    } else {
-                        description.textContent = value;
-                    }
-                    row.append(term, description);
-                    list.appendChild(row);
-                });
-                orderDetails.replaceChildren(list);
-            }
-
-            document.getElementById('saveStatusButton').addEventListener('click', async () => {
-                let receipt;
-                try {
-                    receipt = JSON.parse(localStorage.getItem(receiptKey) || 'null');
-                    if (!receipt || !Array.isArray(receipt.items) || receipt.items.length === 0) {
-                        orderMessage.textContent = 'There is no order available to update.';
-                        orderMessage.hidden = false;
-                        return;
-                    }
-                    if (receipt.status === 'cancelled') {
-                        orderMessage.textContent = 'Cancelled orders cannot be changed.';
-                        orderMessage.hidden = false;
-                        return;
-                    }
-                    if (receipt.adminStatusLocked === true) {
-                        orderMessage.textContent = 'An admin has already changed this order status. Staff can no longer update it.';
-                        orderMessage.hidden = false;
-                        return;
-                    }
-                    if (stages.indexOf(statusSelect.value) < stages.indexOf(receipt.status)) {
-                        orderMessage.textContent = 'Staff can only move order status forward.';
-                        orderMessage.hidden = false;
-                        return;
-                    }
-                    await window.BiteRushApi.request('order-status', {
-                        method: 'PATCH',
-                        body: { id: receipt.id, status: statusSelect.value }
-                    });
-                    receipt.status = statusSelect.value;
-                    receipt.updatedAt = new Date().toISOString();
-                    const history = JSON.parse(localStorage.getItem(ordersKey) || '[]');
-                    if (Array.isArray(history)) {
-                        const index = history.findIndex(order => order && order.id === receipt.id);
-                        if (index !== -1) {
-                            history[index] = { ...history[index], ...receipt };
-                            localStorage.setItem(ordersKey, JSON.stringify(history));
-                        }
-                    }
-                    localStorage.setItem(receiptKey, JSON.stringify(receipt));
-                } catch (error) {
-                    console.error('Unable to update order status:', error);
-                    if (error.message.includes('admin has already changed')) {
-                        try {
-                            const result = await window.BiteRushApi.request('admin-orders');
-                            localStorage.setItem(ordersKey, JSON.stringify(result.orders));
-                            const latestReceipt = result.orders.find(order => order.id === receipt.id);
-                            if (latestReceipt) {
-                                receipt = latestReceipt;
-                                localStorage.setItem(receiptKey, JSON.stringify(receipt));
-                                renderOrder();
-                            }
-                        } catch (refreshError) {
-                            console.error('Unable to refresh the order after an admin update:', refreshError);
-                        }
-                    }
-                    orderMessage.textContent = error.message || 'The order status could not be saved.';
-                    orderMessage.hidden = false;
-                    return;
-                }
-
-                orderMessage.textContent = 'Order status updated.';
-                orderMessage.hidden = false;
-                renderOrder();
-            });
-
-            document.getElementById('signOutButton').addEventListener('click', async () => {
-                try {
-                    await window.BiteRushApi.request('staff-logout', { method: 'POST', body: {} });
-                } catch (error) {
-                    console.error('Unable to end staff session:', error);
-                }
-                window.location.href = 'index.html';
-            });
-
-            renderOrder();
-        })();
-    </script>
+    <script src="../api.js?v=12"></script>
+    <script src="dashboard.js?v=2"></script>
 </body>
 </html>

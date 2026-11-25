@@ -5,6 +5,7 @@
     const requestedOrder = params.get('order');
     const requestedFood = String(params.get('food') || '').trim();
     const requestedPath = normalizePath(params.get('path') || '');
+    const requestedBack = normalizeReturnUrl(params.get('back') || '');
     const form = document.getElementById('feedbackForm');
     const unavailable = document.getElementById('feedbackUnavailable');
     const unavailableMessage = document.getElementById('feedbackUnavailableMessage');
@@ -34,6 +35,18 @@
                 return '';
             }
             return new URL(path, window.location.href).pathname;
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function normalizeReturnUrl(value) {
+        const path = String(value || '').trim();
+        if (!path) return '';
+        try {
+            const url = new URL(path, window.location.href);
+            if (url.origin !== window.location.origin) return '';
+            return `${url.pathname}${url.search}`;
         } catch (error) {
             return '';
         }
@@ -405,7 +418,9 @@
             document.getElementById('pageTitle').hidden = true;
             document.getElementById('feedbackEyebrow').textContent = 'YOUR FEEDBACK MATTERS';
             document.title = `Ratings for ${requestedFood} - BiteRush`;
-            if (requestedPath) document.getElementById('backLink').href = requestedPath;
+            if (requestedBack || requestedPath) {
+                document.getElementById('backLink').href = requestedBack || requestedPath;
+            }
             renderReviews();
         }
         configureFeedbackForm();

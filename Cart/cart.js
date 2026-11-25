@@ -3,6 +3,7 @@
     const SINGLE_ITEM_CHECKOUT_KEY = 'biterush_single_checkout_keys';
     const PRODUCT_OVERRIDES_KEY = 'biterush_product_overrides';
     const CUSTOM_PRODUCTS_KEY = 'biterush_custom_products';
+    const DATABASE_REFRESH_INTERVAL = 20000;
     const projectPath = location.pathname.match(/^(.*?\/BiteRush)(?:\/|$)/i);
     const projectRootPath = projectPath ? projectPath[1] : '';
     const apiUrl = `${projectRootPath}/api/index.php`;
@@ -36,6 +37,21 @@
     const catalogImageUrl = image => image
         ? new URL(image, `${location.origin}${projectPath ? projectPath[1] : ''}/SearchResults/`).href
         : '';
+    const productDetailUrl = product => {
+        const url = new URL(`${projectRootPath}/FoodDetails/Product/index.html`, location.origin);
+        url.searchParams.set('id', String(product.id));
+        url.searchParams.set('from', `${location.pathname}${location.search}`);
+        return url.href;
+    };
+    const createFavoriteButton = (title, className) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = className;
+        button.setAttribute('aria-label', `Add ${title} to favorites`);
+        button.setAttribute('aria-pressed', 'false');
+        button.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>';
+        return button;
+    };
     let productRatingsRequest;
     const readArray = (key, fallback) => {
         try {
@@ -65,7 +81,9 @@
             || card.querySelector('.buy-btn')?.closest('a')?.getAttribute('href')
             || (card.classList.contains('item-card') ? location.pathname : '');
         if (detailLink) {
-            reviewsUrl.searchParams.set('path', new URL(detailLink, location.href).pathname);
+            const detailUrl = new URL(detailLink, location.href);
+            reviewsUrl.searchParams.set('path', detailUrl.pathname);
+            reviewsUrl.searchParams.set('back', `${detailUrl.pathname}${detailUrl.search}`);
         }
         link.href = reviewsUrl.href;
         link.setAttribute('aria-label', `Ratings for ${title}`);
@@ -155,7 +173,11 @@
             if (!grid) return;
             const card = document.createElement('div');
             card.className = 'food-card';
+            card.dataset.title = product.title;
             card.dataset.category = product.category || '';
+            card.dataset.productId = String(product.id);
+            card.dataset.link = productDetailUrl(product);
+            const favorite = createFavoriteButton(product.title, 'favorite-btn');
             const image = document.createElement('img');
             image.className = 'food-img';
             image.src = catalogImageUrl(product.image) || '../BiteRushHomePage/HomePagePics/burger.png';
@@ -183,9 +205,10 @@
             addButton.dataset.price = String(product.price);
             addButton.dataset.img = catalogImageUrl(product.image);
             info.append(title, category, description, price, addButton);
-            card.append(image, info);
+            card.append(favorite, image, info);
             grid.appendChild(card);
             applyProductSetting(card, product.title);
+            window.dispatchEvent(new CustomEvent('biterush-cards-rendered'));
             return;
         }
 
@@ -197,12 +220,16 @@
 
         const card = document.createElement('article');
         card.className = 'search-result-card';
+        card.dataset.title = product.title;
+        card.dataset.category = product.category || '';
+        card.dataset.productId = String(product.id);
+        card.dataset.link = productDetailUrl(product);
         const imageBox = document.createElement('div');
         imageBox.className = 'search-result-image';
         const image = document.createElement('img');
         image.src = catalogImageUrl(product.image) || '../BiteRushHomePage/HomePagePics/burger.png';
         image.alt = product.title;
-        imageBox.appendChild(image);
+        imageBox.append(image, createFavoriteButton(product.title, 'search-result-favorite'));
         const info = document.createElement('div');
         info.className = 'search-result-info';
         const title = document.createElement('h3');
@@ -233,6 +260,7 @@
         card.append(imageBox, info);
         grid.appendChild(card);
         applyProductSetting(card, product.title);
+        window.dispatchEvent(new CustomEvent('biterush-cards-rendered'));
 
         const count = grid.querySelectorAll('.search-result-card:not([hidden])').length;
         const summary = document.getElementById('resultsSummary');
@@ -249,6 +277,25 @@
             throw new Error('The menu catalog response is invalid.');
         }
 
+        const activeProductIds = new Set(result.products.map(product => Number(product.id)));
+        const deletedProductTitles = new Set((result.deletedProducts || []).map(product =>
+            normalizeTitle(product.title)
+        ));
+        Object.entries(productOverrides).forEach(([key, override]) => {
+            const productId = Number(override && override.databaseId);
+            if (Number.isSafeInteger(productId) && productId > 0 && !activeProductIds.has(productId)) {
+                delete productOverrides[key];
+            }
+        });
+        document.querySelectorAll('.food-card[data-product-id], .search-result-card[data-product-id]')
+            .forEach(card => {
+                if (!activeProductIds.has(Number(card.dataset.productId))) card.remove();
+            });
+        document.querySelectorAll('.food-card, .search-result-card').forEach(card => {
+            const title = normalizeTitle(card.dataset.title
+                || card.querySelector('.food-title, h2, h3')?.textContent);
+            if (deletedProductTitles.has(title)) card.remove();
+        });
         result.products.forEach(product => {
             if (!product || !product.title || !Number.isFinite(Number(product.price))) return;
             const key = normalizeTitle(product.title);
@@ -268,12 +315,10 @@
             };
         });
 
-        if (result.products.length) {
-            try {
-                localStorage.setItem(PRODUCT_OVERRIDES_KEY, JSON.stringify(productOverrides));
-            } catch (error) {
-                console.error('Unable to cache the database menu catalog:', error);
-            }
+        try {
+            localStorage.setItem(PRODUCT_OVERRIDES_KEY, JSON.stringify(productOverrides));
+        } catch (error) {
+            console.error('Unable to cache the database menu catalog:', error);
         }
         applyProductSettings();
         if (!window.BiteRushSharedFoodCards && !isProjectRootPage) {
@@ -301,13 +346,21 @@
         window.dispatchEvent(new CustomEvent('biterush-menu-updated'));
         window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
     };
+    let catalogSyncPromise;
+    const syncDatabaseCatalog = () => {
+        if (!catalogSyncPromise) {
+            catalogSyncPromise = loadDatabaseCatalog().finally(() => {
+                catalogSyncPromise = null;
+            });
+        }
+        return catalogSyncPromise;
+    };
     const customProducts = readArray(CUSTOM_PRODUCTS_KEY, []);
     const databaseProductFor = item => {
         const productId = Number(item && item.productId);
         if (Number.isSafeInteger(productId) && productId > 0) {
             return databaseProductsById.get(productId) || null;
         }
-        if (item && item.link) return null;
         return databaseProducts.get(normalizeTitle(item && item.title)) || null;
     };
     const productOverrideFor = item => {
@@ -380,6 +433,11 @@
 
     const saveCart = () => {
         localStorage.setItem(CART_KEY, JSON.stringify(cart));
+        if (!cartSyncReady) {
+            window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
+            render();
+            return;
+        }
         fetch(`${apiUrl}?action=cart`, {
             method: 'PUT',
             credentials: 'same-origin',
@@ -431,7 +489,12 @@
         }
         return item.key || item.link || `${item.title}|${item.img}`;
     };
+    let cartSyncReady = false;
     const add = item => {
+        if (!cartSyncReady) {
+            notify('Your saved cart is still syncing. Try again in a moment.');
+            return false;
+        }
         const product = databaseProductFor(item);
         const override = productOverrideFor(item);
         if ((product && product.deleted === true) || (override && override.deleted === true)) {
@@ -470,9 +533,14 @@
         }
         else cart.push({ ...item, quantity: 1 });
         saveCart();
+        notify(`${item.title} added to your cart.`);
         return true;
     };
     const change = (title, amount) => {
+        if (!cartSyncReady) {
+            notify('Your saved cart is still syncing. Try again in a moment.');
+            return;
+        }
         const item = cart.find(entry => itemKey(entry) === title);
         if (!item) return;
         if (amount > 0) {
@@ -487,6 +555,7 @@
         item.quantity += amount;
         cart = cart.filter(entry => entry.quantity > 0);
         saveCart();
+        if (amount > 0) notify(`${item.title} added to your cart.`);
     };
 
     const existingButton = document.querySelector('.cart-btn');
@@ -918,6 +987,48 @@
         updateDetailQuantity();
     }
 
+    if (!document.querySelector('.biterush-site-footer')) {
+        document.body.classList.add('biterush-footer-layout');
+        const footer = document.createElement('footer');
+        footer.className = 'biterush-site-footer';
+        footer.innerHTML = `
+            <div class="biterush-footer-inner">
+                <div class="biterush-footer-main">
+                    <div class="biterush-footer-brand-column">
+                        <a class="biterush-footer-brand" href="${projectRootPath}/index.html" aria-label="BiteRush home">
+                            <img src="${projectRootPath}/BiteRushHomePage/HomePagePics/burger.png" alt="">
+                            <span>BiteRush</span>
+                        </a>
+                        <p class="biterush-footer-tagline">Crave it. Order it. Bite it. Fresh BiteRush favorites delivered to you.</p>
+                    </div>
+                    <div class="biterush-footer-column" role="navigation" aria-label="Menu links">
+                        <h2>Menu</h2>
+                        <a href="${projectRootPath}/BiteRushFoodMenuPages/BiteRushBreakfastPage/index.html">Breakfast</a>
+                        <a href="${projectRootPath}/BiteRushFoodMenuPages/BiteRushLunchPage/index.html">Lunch</a>
+                        <a href="${projectRootPath}/BiteRushFoodMenuPages/BiteRushDinnerPage/index.html">Dinner</a>
+                        <a href="${projectRootPath}/BiteRushFoodMenuPages/BiteRushBGandFR/index.html">Burger and Fries</a>
+                    </div>
+                    <div class="biterush-footer-column" role="navigation" aria-label="Account links">
+                        <h2>Your account</h2>
+                        <a href="${projectRootPath}/FavPage/index.html">Favorites</a>
+                        <a href="${projectRootPath}/TrackOrder/index.html">Track order</a>
+                        <a href="${projectRootPath}/UserInfo/index.html">Profile</a>
+                    </div>
+                    <div class="biterush-footer-column" role="navigation" aria-label="Support links">
+                        <h2>Support</h2>
+                        <a href="${projectRootPath}/FeedbackHistory/index.html">Feedback history</a>
+                        <a href="${projectRootPath}/DeliveryAddress/terms.html">Terms and privacy</a>
+                        <a href="${projectRootPath}/OrderHistory/index.html">Order history</a>
+                    </div>
+                </div>
+                <div class="biterush-footer-bottom">
+                    <span>&copy; ${new Date().getFullYear()} BiteRush. All rights reserved.</span>
+                    <span>Made for good cravings.</span>
+                </div>
+            </div>`;
+        document.body.appendChild(footer);
+    }
+
     window.BiteRushCart = { add, change, notify, get items() { return [...cart]; } };
     window.addEventListener('biterush-menu-updated', refreshProductRatings);
     window.addEventListener('biterush-cards-rendered', refreshProductRatings);
@@ -944,27 +1055,31 @@
         cart = [];
         render();
     };
-    loadDatabaseCatalog().catch(error => {
-        console.error('Unable to load the menu catalog from the server:', error);
-    }).then(() => fetch(`${apiUrl}?action=cart`, {
-        credentials: 'same-origin',
-        headers: accountHeaders()
-    }))
-        .then(async response => {
+    let cartSyncInProgress = false;
+    let cartServerAvailable = false;
+    const syncCartFromServer = async () => {
+        if (cartSyncInProgress) return;
+        cartSyncInProgress = true;
+        let responseResolved = false;
+        try {
+            const response = await fetch(`${apiUrl}?action=cart`, {
+                credentials: 'same-origin',
+                headers: accountHeaders()
+            });
             if (response.status === 401) {
+                responseResolved = true;
                 if (localStorage.getItem('biterush_active_user_id')) clearAccountCache();
-                return null;
+                return;
             }
             const result = await response.json();
             if (response.status === 409
                 && ['account_context_changed', 'account_context_missing'].includes(result.code)) {
-                if (await recoverAccountContext()) return null;
+                if (await recoverAccountContext()) return;
             }
             if (!response.ok) throw new Error(result.error || 'Could not load your cart.');
-            return result;
-        })
-        .then(result => {
-            if (!result || !Array.isArray(result.items)) return;
+            if (!Array.isArray(result.items)) throw new Error('The saved cart response is invalid.');
+            responseResolved = true;
+            cartServerAvailable = true;
             cart = result.items.map(item => {
                 const product = databaseProductFor(item);
                 if (!product) return item;
@@ -981,8 +1096,25 @@
             localStorage.setItem(CART_KEY, JSON.stringify(cart));
             render();
             window.dispatchEvent(new CustomEvent('biterush-cart-updated'));
-        })
-        .catch(error => console.error('Unable to load cart from the server:', error));
+        } catch (error) {
+            console.error('Unable to sync cart from the server:', error);
+        } finally {
+            if (responseResolved) cartSyncReady = true;
+            cartSyncInProgress = false;
+        }
+    };
+    const refreshDatabaseState = () => {
+        if (document.visibilityState === 'hidden') return;
+        syncDatabaseCatalog()
+            .catch(error => console.error('Unable to refresh the menu catalog from the server:', error))
+            .then(syncCartFromServer);
+    };
+    refreshDatabaseState();
+    window.addEventListener('focus', refreshDatabaseState);
+    document.addEventListener('visibilitychange', refreshDatabaseState);
+    window.setInterval(() => {
+        if (cartServerAvailable && document.visibilityState === 'visible') refreshDatabaseState();
+    }, DATABASE_REFRESH_INTERVAL);
     window.addEventListener('storage', event => {
         if (event.key === 'biterush_active_user_id') {
             if (window.BiteRushApi) return;

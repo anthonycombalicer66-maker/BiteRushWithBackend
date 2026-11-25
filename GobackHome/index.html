@@ -55,7 +55,7 @@
                         <span class="step-label">Delivered</span>
                     </li>
                 </ol>
-                <p class="progress-note" id="progressNote">We’ve received your order and are getting it ready.</p>
+                <p class="progress-note" id="progressNote" aria-live="polite" aria-atomic="true">We’ve received your order and are getting it ready.</p>
             </section>
 
             <section class="order-details" aria-labelledby="detailsTitle">
@@ -93,116 +93,194 @@
     <script>
         (function () {
             const receiptKey = 'biterush_last_order';
+            const ordersKey = 'biterush_orders';
             const money = value => `₱ ${Number(value).toFixed(2)}`;
             let receipt = null;
 
             try {
                 receipt = JSON.parse(localStorage.getItem(receiptKey) || 'null');
+                if (!receipt || !Array.isArray(receipt.items)) {
+                    const orders = JSON.parse(localStorage.getItem(ordersKey) || '[]');
+                    receipt = Array.isArray(orders)
+                        ? orders.find(order => order && Array.isArray(order.items)) || null
+                        : null;
+                }
             } catch (error) {
                 console.error('Unable to read order confirmation:', error);
             }
 
-            if (!receipt || !Array.isArray(receipt.items)) {
-                document.getElementById('orderNumber').textContent = 'No recent order was found.';
-                document.getElementById('orderItems').innerHTML = '<li>Place an order to view your receipt.</li>';
-                document.getElementById('estimatedArrival').textContent = 'Estimated arrival: unavailable';
-                document.querySelector('.action-primary').setAttribute('aria-disabled', 'true');
-                document.querySelector('.action-primary').classList.add('is-disabled');
-                document.querySelector('.action-primary').removeAttribute('href');
-                return;
-            }
+            function renderReceipt() {
+                if (!receipt || !Array.isArray(receipt.items)) {
+                    document.getElementById('orderNumber').textContent = 'No recent order was found.';
+                    document.getElementById('orderItems').innerHTML = '<li>Place an order to view your receipt.</li>';
+                    document.getElementById('estimatedArrival').textContent = 'Estimated arrival: unavailable';
+                    document.querySelector('.action-primary').setAttribute('aria-disabled', 'true');
+                    document.querySelector('.action-primary').classList.add('is-disabled');
+                    document.querySelector('.action-primary').removeAttribute('href');
+                    return;
+                }
 
-            document.getElementById('orderNumber').textContent = `Order #${receipt.id || '—'}`;
-            if (receipt.status === 'delivered') {
+                const trackOrderLink = document.querySelector('.action-primary');
+                trackOrderLink.removeAttribute('aria-disabled');
+                trackOrderLink.classList.remove('is-disabled');
+                trackOrderLink.href = '../TrackOrder/index.html';
+                document.getElementById('orderNumber').textContent = `Order #${receipt.id || '—'}`;
+                const estimatedArrival = receipt.etaAt ? new Date(receipt.etaAt) : null;
+                const etaTime = estimatedArrival && !Number.isNaN(estimatedArrival.getTime())
+                    ? `${estimatedArrival.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (${receipt.eta || 'estimated'})`
+                    : receipt.eta || '20–45 minutes';
+                document.getElementById('deliveryAddress').textContent = receipt.address || 'No address provided';
+                document.getElementById('paymentMethod').textContent = receipt.payment || '—';
+                const stages = ['received', 'preparing', 'on_the_way', 'delivered'];
+                const status = receipt.status || 'received';
+                const cancelled = status === 'cancelled';
+                const stageIndex = Math.max(0, stages.indexOf(status));
+                const subtitles = {
+                    received: 'Your order has been received.',
+                    preparing: 'The kitchen is preparing your order.',
+                    on_the_way: 'Your order is on its way!',
+                    delivered: 'Delivered — hope you enjoy your order!',
+                    cancelled: 'This order was cancelled.'
+                };
+                const progressNotes = {
+                    received: 'We’ve received your order and are getting it ready.',
+                    preparing: 'The kitchen is preparing your order.',
+                    on_the_way: 'Your order is on the way.',
+                    delivered: 'Your order has been delivered. Enjoy!'
+                };
                 document.querySelector('.thank-you-subtitle').textContent =
-                    'Delivered — hope you enjoy your order!';
-            }
-            const estimatedArrival = receipt.etaAt ? new Date(receipt.etaAt) : null;
-            const etaTime = estimatedArrival && !Number.isNaN(estimatedArrival.getTime())
-                ? `${estimatedArrival.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (${receipt.eta || 'estimated'})`
-                : receipt.eta || '20–45 minutes';
-            document.getElementById('estimatedArrival').textContent = `Estimated arrival: ${etaTime}`;
-            document.getElementById('deliveryAddress').textContent = receipt.address || 'No address provided';
-            document.getElementById('paymentMethod').textContent = receipt.payment || '—';
-            const stages = ['received', 'preparing', 'on_the_way', 'delivered'];
-            const cancelled = receipt.status === 'cancelled';
-            const stageIndex = Math.max(0, stages.indexOf(receipt.status));
-            document.querySelector('.progress-steps').hidden = cancelled;
-            if (cancelled) {
-                document.querySelector('.thank-you-subtitle').textContent = 'This order was cancelled.';
-            }
-            document.querySelectorAll('.progress-step').forEach((step, index) => {
-                step.classList.toggle('is-done', index < stageIndex);
-                step.classList.toggle('is-current', index === stageIndex);
-                if (index === stageIndex) step.setAttribute('aria-current', 'step');
-                else step.removeAttribute('aria-current');
-            });
-            const progressNotes = [
-                'We’ve received your order and are getting it ready.',
-                'The kitchen is preparing your order.',
-                'Your order is on the way.',
-                'Your order has been delivered. Enjoy!'
-            ];
-            document.getElementById('progressNote').textContent = cancelled
-                ? `This order was cancelled.${receipt.cancellationReason ? ` Reason: ${receipt.cancellationReason}` : ''}`
-                : progressNotes[stageIndex];
-            const feedbackLink = document.getElementById('receiptFeedback');
-            feedbackLink.hidden = cancelled || stageIndex !== stages.length - 1;
-            feedbackLink.href = `../Feedback/index.html?order=${encodeURIComponent(receipt.id || '')}`;
-            feedbackLink.textContent = receipt.feedback ? 'View your feedback' : 'Rate your order';
-            document.querySelector('.action-primary').hidden = cancelled;
-            document.getElementById('estimatedArrival').textContent = cancelled
-                ? 'Estimated arrival: not applicable'
-                : `Estimated arrival: ${etaTime}`;
+                    subtitles[status] || subtitles.received;
+                document.querySelector('.progress-steps').hidden = cancelled;
+                document.querySelectorAll('.progress-step').forEach((step, index) => {
+                    step.classList.toggle('is-done', index < stageIndex);
+                    step.classList.toggle('is-current', index === stageIndex);
+                    if (index === stageIndex) step.setAttribute('aria-current', 'step');
+                    else step.removeAttribute('aria-current');
+                });
+                document.getElementById('progressNote').textContent = cancelled
+                    ? `This order was cancelled.${receipt.cancellationReason ? ` Reason: ${receipt.cancellationReason}` : ''}`
+                    : progressNotes[status] || progressNotes.received;
+                const feedbackLink = document.getElementById('receiptFeedback');
+                feedbackLink.hidden = cancelled || status !== 'delivered';
+                feedbackLink.href = `../Feedback/index.html?order=${encodeURIComponent(receipt.id || '')}`;
+                feedbackLink.textContent = receipt.feedback ? 'View your feedback' : 'Rate your order';
+                document.querySelector('.action-primary').hidden = cancelled;
+                document.getElementById('estimatedArrival').textContent = cancelled
+                    ? 'Estimated arrival: not applicable'
+                    : status === 'delivered'
+                        ? 'Delivered'
+                        : `Estimated arrival: ${etaTime}`;
 
-            const items = document.getElementById('orderItems');
-            items.replaceChildren();
-            receipt.items.forEach(item => {
-                const row = document.createElement('li');
-                const quantity = Number(item.quantity);
-                const price = Number(item.price);
-                const safeQuantity = Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 1;
-                const safePrice = Number.isFinite(price) && price >= 0 ? price : 0;
-                row.textContent = `${safeQuantity} × ${item.title || 'Item'} — ${money(safePrice * safeQuantity)}`;
-                items.appendChild(row);
-                if (item.instructions) {
-                    const notes = document.createElement('li');
-                    notes.className = 'receipt-item-notes';
-                    notes.textContent = `Preparation notes: ${item.instructions}`;
-                    items.appendChild(notes);
+                const items = document.getElementById('orderItems');
+                items.replaceChildren();
+                receipt.items.forEach(item => {
+                    const row = document.createElement('li');
+                    const quantity = Number(item.quantity);
+                    const price = Number(item.price);
+                    const safeQuantity = Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 1;
+                    const safePrice = Number.isFinite(price) && price >= 0 ? price : 0;
+                    row.textContent = `${safeQuantity} × ${item.title || 'Item'} — ${money(safePrice * safeQuantity)}`;
+                    items.appendChild(row);
+                    if (item.instructions) {
+                        const notes = document.createElement('li');
+                        notes.className = 'receipt-item-notes';
+                        notes.textContent = `Preparation notes: ${item.instructions}`;
+                        items.appendChild(notes);
+                    }
+                });
+
+                const instructions = document.getElementById('deliveryInstructions');
+                instructions.hidden = !receipt.instructions;
+                instructions.textContent = receipt.instructions
+                    ? `Delivery instructions: ${receipt.instructions}`
+                    : '';
+
+                const totalRows = [
+                    ['Subtotal', receipt.subtotal],
+                    ['Discount', -Number(receipt.discount || 0)],
+                    [`${receipt.deliveryLabel || 'Standard'} delivery`, receipt.deliveryFee],
+                    ['Service fee', receipt.serviceFee],
+                    ['Rider tip', receipt.tip],
+                    ['Total', receipt.total]
+                ];
+                const totals = document.getElementById('orderTotals');
+                totals.replaceChildren();
+                totalRows.forEach(([label, amount], index) => {
+                    if (label === 'Discount' && !Number(amount)) return;
+                    if (label === 'Rider tip' && !Number(amount)) return;
+                    const row = document.createElement('div');
+                    row.className = index === totalRows.length - 1 ? 'total-detail' : '';
+                    const name = document.createElement('dt');
+                    name.textContent = label;
+                    const value = document.createElement('dd');
+                    value.textContent = label === 'Discount'
+                        ? `-${money(Math.abs(Number(amount) || 0))}`
+                        : money(amount);
+                    row.append(name, value);
+                    totals.appendChild(row);
+                });
+            }
+
+            renderReceipt();
+
+            let refreshInProgress = false;
+            async function refreshReceiptStatus() {
+                if (refreshInProgress) return;
+                refreshInProgress = true;
+                try {
+                    const accountId = localStorage.getItem('biterush_active_user_id');
+                    const response = await fetch('../api/index.php?action=orders', {
+                        credentials: 'same-origin',
+                        headers: accountId ? { 'X-BiteRush-Account': accountId } : {}
+                    });
+                    let result;
+                    try {
+                        result = await response.json();
+                    } catch (error) {
+                        throw new Error('The server returned an invalid order response.');
+                    }
+                    if (!response.ok) {
+                        throw new Error(result.error || `Request failed (${response.status}).`);
+                    }
+                    if (!Array.isArray(result.orders)) {
+                        throw new Error('The server returned an invalid order list.');
+                    }
+
+                    let currentOrder = receipt && receipt.id
+                        ? result.orders.find(order => order && String(order.id) === String(receipt.id))
+                        : null;
+                    if (!currentOrder && !receipt) currentOrder = result.orders[0];
+                    if (!currentOrder) return;
+
+                    localStorage.setItem(ordersKey, JSON.stringify(result.orders));
+                    receipt = { ...receipt, ...currentOrder };
+                    localStorage.setItem(receiptKey, JSON.stringify(receipt));
+                    renderReceipt();
+                } catch (error) {
+                    console.error('Unable to refresh order confirmation status:', error);
+                } finally {
+                    refreshInProgress = false;
+                }
+            }
+
+            refreshReceiptStatus();
+            window.addEventListener('focus', refreshReceiptStatus);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') refreshReceiptStatus();
+            });
+            window.setInterval(() => {
+                if (document.visibilityState === 'visible') refreshReceiptStatus();
+            }, 20000);
+            window.addEventListener('storage', event => {
+                if (event.key === receiptKey) {
+                    try {
+                        receipt = JSON.parse(event.newValue || 'null');
+                        renderReceipt();
+                    } catch (error) {
+                        console.error('Unable to refresh order confirmation from storage:', error);
+                    }
                 }
             });
-
-            if (receipt.instructions) {
-                const instructions = document.getElementById('deliveryInstructions');
-                instructions.textContent = `Delivery instructions: ${receipt.instructions}`;
-                instructions.hidden = false;
-            }
-
-            const totalRows = [
-                ['Subtotal', receipt.subtotal],
-                ['Discount', -Number(receipt.discount || 0)],
-                [`${receipt.deliveryLabel || 'Standard'} delivery`, receipt.deliveryFee],
-                ['Service fee', receipt.serviceFee],
-                ['Rider tip', receipt.tip],
-                ['Total', receipt.total]
-            ];
-            const totals = document.getElementById('orderTotals');
-            totalRows.forEach(([label, amount], index) => {
-                if (label === 'Discount' && !Number(amount)) return;
-                if (label === 'Rider tip' && !Number(amount)) return;
-                const row = document.createElement('div');
-                row.className = index === totalRows.length - 1 ? 'total-detail' : '';
-                const name = document.createElement('dt');
-                name.textContent = label;
-                const value = document.createElement('dd');
-                value.textContent = label === 'Discount'
-                    ? `-${money(Math.abs(Number(amount) || 0))}`
-                    : money(amount);
-                row.append(name, value);
-                totals.appendChild(row);
-            });
-
         }());
     </script>
     <script src="../SearchResults/search-results-data.js"></script>

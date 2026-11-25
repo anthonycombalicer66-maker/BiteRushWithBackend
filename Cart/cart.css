@@ -567,3 +567,115 @@
         justify-content: space-between;
     }
 }
+
+.biterush-site-footer {
+    width: 100%;
+    flex: 0 0 auto;
+    margin-top: auto;
+    background: #17202a;
+    color: #eef1f4;
+}
+
+.biterush-footer-layout {
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+}
+
+.biterush-footer-layout > main {
+    flex: 1 0 auto;
+}
+
+.biterush-footer-inner {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 34px 0 20px;
+}
+
+.biterush-footer-main {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(120px, 1fr));
+    gap: 28px;
+}
+
+.biterush-footer-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 900;
+    text-decoration: none;
+}
+
+.biterush-footer-brand img {
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
+}
+
+.biterush-footer-tagline {
+    max-width: 300px;
+    margin-top: 10px;
+    color: #bdc5cc;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.biterush-footer-column h2 {
+    margin: 0 0 12px;
+    color: #ffd233;
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.biterush-footer-column a {
+    display: block;
+    width: fit-content;
+    margin: 7px 0;
+    color: #eef1f4;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.biterush-footer-column a:hover,
+.biterush-footer-column a:focus-visible {
+    color: #ffd233;
+}
+
+.biterush-footer-bottom {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid #3a4652;
+    color: #aeb7bf;
+    font-size: 12px;
+}
+
+@media (max-width: 760px) {
+    .biterush-footer-main {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .biterush-footer-brand-column {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 480px) {
+    .biterush-footer-main {
+        grid-template-columns: 1fr;
+    }
+
+    .biterush-footer-brand-column {
+        grid-column: auto;
+    }
+
+    .biterush-footer-bottom {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

@@ -98,15 +98,16 @@
                 <a class="action-button action-secondary" href="../index.html">Back to menu</a>
                 <a class="action-button action-secondary" href="../DeliveryAddress/terms.html">Terms &amp; privacy</a>
             </nav>
-            <p class="tracking-disclaimer">Order status is based on the latest information available on this device.</p>
+            <p class="tracking-disclaimer">Only your newest order that is received, preparing, or on the way is displayed.</p>
         </section>
     </main>
 
-    <script src="../api.js?v=7"></script>
+    <script src="../api.js?v=12"></script>
     <script>
         (function () {
             const receiptKey = 'biterush_last_order';
             const stages = ['received', 'preparing', 'on_the_way', 'delivered'];
+            const activeStatuses = new Set(['received', 'preparing', 'on_the_way']);
             const notes = {
                 received: 'We’ve received your order and are getting it ready.',
                 preparing: 'The kitchen is preparing your order.',
@@ -128,14 +129,17 @@
                 const actions = document.querySelector('.tracking-actions');
                 const confirmDelivery = document.getElementById('confirmDelivery');
                 const feedbackPrompt = document.getElementById('feedbackPrompt');
-                if (!receipt || !Array.isArray(receipt.items) || receipt.items.length === 0) {
-                    number.textContent = 'No recent order was found.';
+                if (!receipt || !Array.isArray(receipt.items) || receipt.items.length === 0
+                    || !activeStatuses.has(receipt.status)) {
+                    number.textContent = receipt ? 'No active order to track.' : 'No recent order was found.';
                     tracking.hidden = true;
                     actions.hidden = true;
                     confirmDelivery.hidden = true;
                     feedbackPrompt.hidden = true;
                     document.getElementById('estimatedArrival').textContent =
-                        'Place an order to see its delivery progress.';
+                        receipt
+                            ? 'All of your orders are delivered or cancelled.'
+                            : 'Place an order to see its delivery progress.';
                     document.getElementById('deliveryAddress').textContent = '—';
                     document.getElementById('paymentMethod').textContent = '—';
                     return;
@@ -181,32 +185,36 @@
                         : '';
             };
 
+            let orderRefreshInProgress = false;
             async function loadLatestOrder() {
+                if (orderRefreshInProgress) return;
+                orderRefreshInProgress = true;
                 try {
-                    let cached = null;
-                    try {
-                        cached = JSON.parse(localStorage.getItem(receiptKey) || 'null');
-                    } catch (error) {
-                        console.error('Unable to read cached tracking details:', error);
-                    }
-                    let order;
-                    if (cached && cached.id) {
-                        ({ order } = await window.BiteRushApi.request('order', {
-                            query: { id: cached.id }
-                        }));
+                    const result = await window.BiteRushApi.request('orders');
+                    const orders = Array.isArray(result.orders) ? result.orders : [];
+                    const order = orders.find(entry => entry && activeStatuses.has(entry.status));
+                    const mostRecentOrder = order || orders[0];
+                    localStorage.setItem('biterush_orders', JSON.stringify(orders));
+                    if (mostRecentOrder) {
+                        localStorage.setItem(receiptKey, JSON.stringify(mostRecentOrder));
                     } else {
-                        const result = await window.BiteRushApi.request('orders');
-                        order = result.orders[0];
+                        localStorage.removeItem(receiptKey);
                     }
-                    if (order) {
-                        localStorage.setItem(receiptKey, JSON.stringify(order));
-                        render();
-                    }
+                    render();
                 } catch (error) {
                     console.error('Unable to load order tracking from the server:', error);
+                    if (error.status === 404) {
+                        localStorage.removeItem(receiptKey);
+                        render();
+                        document.getElementById('orderNumber').textContent =
+                            'This order is no longer available in the database.';
+                        return;
+                    }
                     if (error.message.includes('sign in')) {
                         document.getElementById('orderNumber').textContent = error.message;
                     }
+                } finally {
+                    orderRefreshInProgress = false;
                 }
             }
 
@@ -250,6 +258,13 @@
 
             render();
             loadLatestOrder();
+            window.addEventListener('focus', loadLatestOrder);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') loadLatestOrder();
+            });
+            window.setInterval(() => {
+                if (document.visibilityState === 'visible') loadLatestOrder();
+            }, 20000);
             window.addEventListener('storage', event => {
                 if (event.key === receiptKey) render();
             });

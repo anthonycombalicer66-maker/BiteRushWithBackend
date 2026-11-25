@@ -1,7 +1,12 @@
 (function () {
+    'use strict';
+
     const cartKey = 'biterush_cart';
     const deliveryKey = 'biterush_delivery';
     const savedTipKey = 'biterush_saved_tip';
+    const addressInput = document.getElementById('deliveryAddress');
+    const instructionsInput = document.getElementById('deliveryInstructions');
+    const addressHelp = document.getElementById('addressHelp');
     const money = value => `₱ ${Number(value).toFixed(2)}`;
     let state;
     try {
@@ -10,6 +15,7 @@
         console.error('Unable to read delivery preferences:', error);
         state = {};
     }
+    if (!state || typeof state !== 'object' || Array.isArray(state)) state = {};
     state = {
         adjustment: Number(state.adjustment) || 0,
         label: state.label || 'Standard',
@@ -18,6 +24,15 @@
         contactless: Boolean(state.contactless),
         address: typeof state.address === 'string' ? state.address : '',
         instructions: typeof state.instructions === 'string' ? state.instructions : ''
+    };
+
+    const save = () => {
+        try {
+            localStorage.setItem(deliveryKey, JSON.stringify(state));
+        } catch (error) {
+            console.error('Unable to save delivery preferences on this device:', error);
+            addressHelp.textContent = 'This address could not be saved on this device. It will still be included if you place the order.';
+        }
     };
     const readCart = () => {
         try {
@@ -34,10 +49,8 @@
         if (voucher === 'voucher15' && subtotal >= 199) return Math.min(subtotal * .15, 600);
         return 0;
     };
-    const save = () => localStorage.setItem(deliveryKey, JSON.stringify(state));
-    const addressInput = document.getElementById('deliveryAddress');
-    const instructionsInput = document.getElementById('deliveryInstructions');
-    addressInput.value = state.address || 'Brgy. 69, MgaNigghas Legazpi City, zone 6 Welcome Ave, Albay';
+
+    addressInput.value = state.address;
     instructionsInput.value = state.instructions;
     addressInput.addEventListener('input', () => {
         state.address = addressInput.value;
@@ -47,6 +60,26 @@
         state.instructions = instructionsInput.value;
         save();
     });
+
+    const restoreSavedAddress = async () => {
+        if (state.address.trim()
+            || !localStorage.getItem('biterush_active_user_id')
+            || !window.BiteRushApi) return;
+        try {
+            const saved = await window.BiteRushApi.request('delivery-address');
+            if (addressInput.value.trim() || !saved.address) return;
+            state.address = saved.address;
+            addressInput.value = saved.address;
+            save();
+        } catch (error) {
+            if (error.message !== 'Please sign in to continue.') {
+                console.error('Unable to restore the saved delivery address from the account:', error);
+                addressHelp.textContent = 'The previous account address could not be loaded. Enter it manually to continue.';
+            }
+        }
+    };
+    restoreSavedAddress();
+
     const update = () => {
         const subtotal = readCart().reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
         const discount = getVoucherDiscount(subtotal);
@@ -74,6 +107,7 @@
         document.querySelector('.payment-row > span:last-child').textContent = money(total);
         document.getElementById('paymentMethodLabel').textContent = state.payment;
     };
+
     document.querySelectorAll('.delivery-option').forEach(option => {
         option.classList.toggle('selected', option.dataset.deliveryLabel === state.label);
         option.addEventListener('click', () => {

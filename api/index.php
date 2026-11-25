@@ -116,25 +116,51 @@ function current_user(bool $requireAccountContext = false): array
             'code' => 'account_context_changed',
         ]);
     }
-    $statement = db()->prepare('SELECT deleted_at FROM users WHERE id = ?');
+    $statement = db()->prepare(
+        'SELECT fullname, username, email, profile_image, deleted_at FROM users WHERE id = ?'
+    );
     $statement->execute([$_SESSION['user']['id']]);
-    $deletedAt = $statement->fetchColumn();
-    if ($deletedAt === false || $deletedAt !== null) {
+    $user = $statement->fetch();
+    if (!$user || $user['deleted_at'] !== null) {
         unset($_SESSION['user']);
         respond(401, ['error' => 'This account is no longer active.']);
     }
+    $_SESSION['user'] = [
+        'id' => (int)$_SESSION['user']['id'],
+        'fullname' => $user['fullname'],
+        'username' => $user['username'],
+        'email' => $user['email'],
+        'profileImage' => $user['profile_image'],
+    ];
     return $_SESSION['user'];
 }
 
 function require_staff(array $roles = ['admin', 'staff']): array
 {
     $actor = $_SESSION['staff'] ?? null;
-    $role = is_array($actor) ? strtolower(trim((string)($actor['role'] ?? ''))) : '';
-    if (!is_array($actor) || !in_array($role, $roles, true)) {
+    if (!is_array($actor) || !isset($actor['id'])) {
         respond(403, ['error' => 'You do not have permission to perform this action.']);
     }
-    $actor['role'] = $role;
-    return $actor;
+    $statement = db()->prepare(
+        'SELECT username, display_name, role, active FROM staff WHERE id = ?'
+    );
+    $statement->execute([(int)$actor['id']]);
+    $staff = $statement->fetch();
+    if (!$staff || !(bool)$staff['active']) {
+        unset($_SESSION['staff']);
+        respond(401, ['error' => 'This staff account is no longer active.']);
+    }
+    $role = strtolower(trim((string)$staff['role']));
+    if (!in_array($role, $roles, true)) {
+        respond(403, ['error' => 'You do not have permission to perform this action.']);
+    }
+    $_SESSION['staff'] = [
+        'id' => (int)$actor['id'],
+        'username' => $staff['username'],
+        'name' => $staff['display_name'],
+        'role' => $role,
+    ];
+    return $_SESSION['staff'];
 }
 
 function clean_text(mixed $value, int $maxLength, string $label, bool $required = false): string
@@ -604,6 +630,10 @@ try {
 
     if ($action === 'favorites' && $method === 'GET') {
         $user = current_user();
+        $pdo->prepare(
+            'DELETE f FROM favorites f JOIN products p ON p.id = f.product_id
+             WHERE f.user_id = ? AND p.deleted = TRUE'
+        )->execute([$user['id']]);
         $statement = $pdo->prepare(
             'SELECT f.product_id AS productId, f.product_title AS title,
                     COALESCE(NULLIF(p.image, ""), f.image) AS img, f.product_path AS path,
@@ -713,6 +743,10 @@ try {
 
     if ($action === 'cart' && $method === 'GET') {
         $user = current_user();
+        $pdo->prepare(
+            'DELETE c FROM cart_items c JOIN products p ON p.id = c.product_id
+             WHERE c.user_id = ? AND p.deleted = TRUE'
+        )->execute([$user['id']]);
         $statement = $pdo->prepare(
             'SELECT item_key AS `key`, product_id AS productId, title, review_title AS reviewTitle, image AS img,
                     product_path AS link, instructions, unit_price AS price, quantity
@@ -755,8 +789,16 @@ try {
                 respond(400, ['error' => 'A cart item has an invalid price.']);
             }
             $requestedProductId = nullable_product_id($item['productId'] ?? $item['product_id'] ?? null);
-            if ($requestedProductId === null && $path === '') {
-                $productLookup = $pdo->prepare('SELECT id FROM products WHERE title = ?');
+            if ($requestedProductId !== null) {
+                $productLookup = $pdo->prepare('SELECT deleted FROM products WHERE id = ?');
+                $productLookup->execute([$requestedProductId]);
+                $productDeleted = $productLookup->fetchColumn();
+                if ($productDeleted === false || (bool)$productDeleted) {
+                    respond(409, ['error' => 'This dish was removed from the menu. Refresh your cart.']);
+                }
+            }
+            if ($requestedProductId === null) {
+                $productLookup = $pdo->prepare('SELECT id FROM products WHERE title = ? AND deleted = FALSE');
                 $productLookup->execute([$title]);
                 $foundProductId = $productLookup->fetchColumn();
                 $requestedProductId = $foundProductId === false ? null : (int)$foundProductId;
@@ -790,6 +832,26 @@ try {
             }
         });
         respond(200, ['message' => 'Cart saved.']);
+    }
+
+    if ($action === 'delivery-address' && $method === 'GET') {
+        $user = current_user();
+        $statement = $pdo->prepare(
+            'SELECT address FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1'
+        );
+        $statement->execute([$user['id']]);
+        $savedAddress = $statement->fetch();
+        respond(200, ['address' => $savedAddress['address'] ?? '']);
+    }
+
+    if ($action === 'order-updates' && $method === 'GET') {
+        $user = current_user();
+        $statement = $pdo->prepare(
+            'SELECT order_number AS id, status
+             FROM orders WHERE user_id = ? ORDER BY created_at DESC, id DESC'
+        );
+        $statement->execute([$user['id']]);
+        respond(200, ['orders' => $statement->fetchAll()]);
     }
 
     if ($action === 'orders' && $method === 'GET') {
@@ -897,29 +959,30 @@ try {
                 );
                 $product->execute([$requestedProductId]);
                 $catalogProduct = $product->fetch();
-            } elseif ($path === '') {
+            } else {
                 $product = $pdo->prepare(
                     'SELECT id, title, price, stock, available, deleted FROM products WHERE title = ? FOR UPDATE'
                 );
                 $product->execute([$title]);
                 $catalogProduct = $product->fetch();
             }
-            $productId = null;
-            if ($catalogProduct) {
-                $productId = (int)$catalogProduct['id'];
-                $title = $catalogProduct['title'];
-                if (!$catalogProduct['available'] || $catalogProduct['deleted']
-                    || ($catalogProduct['stock'] !== null
-                        && $quantity > (int)$catalogProduct['stock'] - ($stockAdjustments[$productId] ?? 0))) {
-                    respond(409, ['error' => "$title is unavailable or has insufficient stock."]);
-                }
-                $price = (float)$catalogProduct['price'];
-                if ($catalogProduct['stock'] !== null) {
-                    $stockAdjustments[$productId] = ($stockAdjustments[$productId] ?? 0) + $quantity;
-                    $stockTitles[$productId] = $title;
-                }
-            } else {
-                $price = (float)$price;
+            if ($requestedProductId !== null && !$catalogProduct) {
+                respond(409, ['error' => 'This dish is no longer available. Refresh the menu and try again.']);
+            }
+            if (!$catalogProduct) {
+                respond(409, ['error' => 'This dish is not in the current menu. Refresh the menu and try again.']);
+            }
+            $productId = (int)$catalogProduct['id'];
+            $title = $catalogProduct['title'];
+            if (!$catalogProduct['available'] || $catalogProduct['deleted']
+                || ($catalogProduct['stock'] !== null
+                    && $quantity > (int)$catalogProduct['stock'] - ($stockAdjustments[$productId] ?? 0))) {
+                respond(409, ['error' => "$title is unavailable or has insufficient stock."]);
+            }
+            $price = (float)$catalogProduct['price'];
+            if ($catalogProduct['stock'] !== null) {
+                $stockAdjustments[$productId] = ($stockAdjustments[$productId] ?? 0) + $quantity;
+                $stockTitles[$productId] = $title;
             }
             $subtotal += $price * $quantity;
             $cleanItems[] = [
@@ -1088,6 +1151,30 @@ try {
         );
         $statement->execute([$product]);
         respond(200, ['reviews' => $statement->fetchAll()]);
+    }
+
+    if ($action === 'my-feedback' && $method === 'GET') {
+        $user = current_user();
+        $statement = $pdo->prepare(
+            'SELECT f.id, f.product_title AS foodItem, f.product_path AS foodItemPath,
+                    f.food_rating AS foodRating, f.delivery_rating AS deliveryRating,
+                    f.comment, f.created_at AS submittedAt,
+                    f.admin_response AS adminResponse, f.created_at AS updatedAt,
+                    o.order_number AS orderId
+             FROM feedback f
+             JOIN orders o ON o.id = f.order_id
+             WHERE f.user_id = ? AND f.hidden = FALSE
+             ORDER BY f.created_at DESC, f.id DESC'
+        );
+        $statement->execute([$user['id']]);
+        $reviews = $statement->fetchAll();
+        foreach ($reviews as &$review) {
+            $review['id'] = (int)$review['id'];
+            $review['foodRating'] = $review['foodRating'] === null ? null : (int)$review['foodRating'];
+            $review['deliveryRating'] = $review['deliveryRating'] === null ? null : (int)$review['deliveryRating'];
+        }
+        unset($review);
+        respond(200, ['reviews' => $reviews]);
     }
 
     if ($action === 'feedback' && $method === 'POST') {
@@ -1366,9 +1453,13 @@ try {
         $staff = require_staff();
         $orderNumber = clean_text($data['id'] ?? null, 40, 'Order number', true);
         $status = $data['status'] ?? '';
+        $cancellationReason = clean_text($data['cancellationReason'] ?? null, 500, 'Cancellation reason');
         $stages = ['received', 'preparing', 'on_the_way', 'delivered'];
         if (!in_array($status, [...$stages, 'cancelled'], true)) {
             respond(400, ['error' => 'Invalid order status.']);
+        }
+        if ($status === 'cancelled' && $cancellationReason === '') {
+            respond(400, ['error' => 'Cancellation reason is required.']);
         }
         $pdo->beginTransaction();
         $currentOrder = $pdo->prepare('SELECT status FROM orders WHERE order_number = ? FOR UPDATE');
@@ -1411,8 +1502,16 @@ try {
                 respond(409, ['error' => 'Staff can only move order status forward.']);
             }
         }
-        $statement = $pdo->prepare('UPDATE orders SET status = ?, updated_at = NOW() WHERE order_number = ?');
-        $statement->execute([$status, $orderNumber]);
+        $statement = $pdo->prepare(
+            'UPDATE orders
+             SET status = ?, cancellation_reason = ?, updated_at = NOW()
+             WHERE order_number = ?'
+        );
+        $statement->execute([
+            $status,
+            $status === 'cancelled' ? $cancellationReason : null,
+            $orderNumber,
+        ]);
         if ($statement->rowCount() === 0) {
             $pdo->rollBack();
             respond(404, ['error' => 'Order not found or unchanged.']);
@@ -1420,6 +1519,68 @@ try {
         log_action($staff, 'status update', $orderNumber, "$previousStatus to $status");
         $pdo->commit();
         respond(200, ['message' => 'Order status updated.']);
+    }
+
+    if ($action === 'order-details' && $method === 'PATCH') {
+        $staff = require_staff();
+        $orderNumber = clean_text($data['id'] ?? null, 40, 'Order number', true);
+        $estimatedDelivery = clean_text($data['estimatedDelivery'] ?? null, 40, 'Estimated delivery');
+        $assignedStaff = clean_text($data['assignedStaff'] ?? null, 80, 'Assigned staff');
+
+        $estimatedSql = null;
+        if ($estimatedDelivery !== '') {
+            $estimatedDate = DateTimeImmutable::createFromFormat(DateTimeInterface::ATOM, $estimatedDelivery);
+            if (!$estimatedDate) {
+                $estimatedDate = new DateTimeImmutable($estimatedDelivery);
+            }
+            $estimatedSql = $estimatedDate->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+        }
+
+        $refundAmount = null;
+        if ($staff['role'] === 'admin' && array_key_exists('refundAmount', $data)) {
+            $refundAmount = filter_var($data['refundAmount'], FILTER_VALIDATE_FLOAT);
+            if ($refundAmount === false || $refundAmount < 0) {
+                respond(400, ['error' => 'Refund amount is invalid.']);
+            }
+        }
+
+        $pdo->beginTransaction();
+        $orderStatement = $pdo->prepare(
+            'SELECT id, total, status FROM orders WHERE order_number = ? FOR UPDATE'
+        );
+        $orderStatement->execute([$orderNumber]);
+        $order = $orderStatement->fetch();
+        if (!$order) {
+            $pdo->rollBack();
+            respond(404, ['error' => 'Order not found.']);
+        }
+        if ($refundAmount !== null && $refundAmount > (float)$order['total']) {
+            $pdo->rollBack();
+            respond(400, ['error' => 'Refund amount cannot exceed the order total.']);
+        }
+        if ($refundAmount === null) {
+            $update = $pdo->prepare(
+                'UPDATE orders
+                 SET estimated_delivery = ?, assigned_staff = ?, updated_at = NOW()
+                 WHERE order_number = ?'
+            );
+            $update->execute([$estimatedSql, $assignedStaff === '' ? null : $assignedStaff, $orderNumber]);
+        } else {
+            $update = $pdo->prepare(
+                'UPDATE orders
+                 SET estimated_delivery = ?, assigned_staff = ?, refund_amount = ?, updated_at = NOW()
+                 WHERE order_number = ?'
+            );
+            $update->execute([
+                $estimatedSql,
+                $assignedStaff === '' ? null : $assignedStaff,
+                $refundAmount,
+                $orderNumber,
+            ]);
+        }
+        log_action($staff, 'delivery details update', $orderNumber, 'estimated delivery, assignment, or refund updated');
+        $pdo->commit();
+        respond(200, ['message' => 'Delivery details saved.']);
     }
 
     if ($action === 'product-image-upload' && $method === 'POST') {
@@ -1720,6 +1881,12 @@ try {
             $productId,
             json_encode(product_fields($product), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         ]);
+        $pdo->prepare(
+            'DELETE FROM cart_items WHERE product_id = ? OR (product_id IS NULL AND title = ?)'
+        )->execute([$productId, $product['title']]);
+        $pdo->prepare(
+            'DELETE FROM favorites WHERE product_id = ? OR (product_id IS NULL AND product_title = ?)'
+        )->execute([$productId, $product['title']]);
         $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$productId]);
         log_action($staff, 'permanent delete', $product['title'], 'Product permanently deleted');
         $pdo->commit();

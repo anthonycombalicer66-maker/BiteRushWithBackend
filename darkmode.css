@@ -61,6 +61,28 @@ body.dark-theme {
     color: var(--theme-navbar-text) !important;
 }
 
+:is(html.dark-theme, body.dark-theme) .biterush-site-footer,
+:is(html.dark-theme, body.dark-theme) .biterush-footer-inner {
+    background: #17202a !important;
+    color: #eef1f4 !important;
+}
+
+:is(html.dark-theme, body.dark-theme) .biterush-footer-brand,
+:is(html.dark-theme, body.dark-theme) .biterush-footer-column a {
+    color: #eef1f4 !important;
+}
+
+:is(html.dark-theme, body.dark-theme) .biterush-footer-column h2,
+:is(html.dark-theme, body.dark-theme) .biterush-footer-brand:hover,
+:is(html.dark-theme, body.dark-theme) .biterush-footer-column a:hover {
+    color: #ffd233 !important;
+}
+
+:is(html.dark-theme, body.dark-theme) .biterush-footer-tagline,
+:is(html.dark-theme, body.dark-theme) .biterush-footer-bottom {
+    color: #bdc5cc !important;
+}
+
 :is(html.dark-theme, body.dark-theme) :is(
     .filter-bar,
     .shared-cart-header,

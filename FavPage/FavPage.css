@@ -15,9 +15,22 @@
 }
 
 .favorites-main {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     max-width: 1150px;
     margin: 0 auto;
     padding: 0 20px 40px;
+}
+
+.favorites-main .food-grid {
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.favorites-main .food-card,
+.favorites-main .food-info {
+    min-width: 0;
 }
 
 .favorites-header {
@@ -166,6 +179,12 @@
 @media (max-width: 700px) {
     .favorites-header {
         align-items: center;
+    }
+}
+
+@media (max-width: 760px) {
+    .favorites-main .food-grid {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 

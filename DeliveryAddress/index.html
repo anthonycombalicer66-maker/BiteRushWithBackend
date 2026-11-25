@@ -7,9 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delivery Address</title>
     <!-- order matters: later stylesheets win. cart.css first, then page styles, then dark mode -->
-    <link rel="stylesheet" href="../Cart/cart.css?v=9">
-    <link rel="stylesheet" href="styleadd.css?v=2">
-    <link rel="stylesheet" href="../darkmode.css">
+    <link rel="stylesheet" href="../Cart/cart.css?v=12">
+    <link rel="stylesheet" href="styleadd.css?v=4">
+    <link rel="stylesheet" href="../darkmode.css?v=2">
     <!-- LAYOUT FIX: lives in the HTML itself, after every stylesheet, so no CSS file can override it -->
     <style id="layout-fix">
         body { padding-top: 64px !important; }
@@ -61,14 +61,10 @@
                 <button class="edit">✎</button>
             </div>
 
-            <!-- map -->
-            <div class="map">
-                <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d4122.996383060373!2d123.75254811084002!3d13.147982210932918!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x33a101817184433f%3A0xa359b8455f0427f2!2sForbes%20College%20Campus%202!5e1!3m2!1sen!2sph!4v1790145651294!5m2!1sen!2sph" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-            </div>
-
             <label class="address-label" for="deliveryAddress">Delivery address</label>
             <textarea class="address delivery-address-input" id="deliveryAddress"
-                maxlength="220" rows="2" required aria-describedby="addressHelp"></textarea>
+                maxlength="1000" rows="2" required aria-describedby="addressHelp"
+                placeholder="Enter the complete delivery address."></textarea>
             <small id="addressHelp" class="address-help">Enter the complete address where your order should be delivered.</small>
 
             <label class="instructions-label" for="deliveryInstructions">Delivery instructions <span>(optional)</span></label>
@@ -209,10 +205,10 @@
 
     </main>
 
-    <script src="../Cart/cart.js?v=15"></script>
-    <script src="../api.js?v=7"></script>
-    <script src="../Cart/checkout.js?v=7"></script>
-    <script src="delivery.js"></script>
+    <script src="../Cart/cart.js?v=21"></script>
+    <script src="../api.js?v=12"></script>
+    <script src="../Cart/checkout.js?v=8"></script>
+    <script src="delivery.js?v=3"></script>
 </body>
 
 </html>

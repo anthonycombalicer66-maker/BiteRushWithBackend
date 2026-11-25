@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="../darkmode.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order History - BiteRush</title>
+    <link rel="stylesheet" href="../darkmode.css?v=2">
+    <link rel="stylesheet" href="../Cart/cart.css?v=12">
+    <link rel="stylesheet" href="OrderHistory.css">
+</head>
+<body>
+    <header class="history-header">
+        <a class="history-brand" href="../index.html" aria-label="BiteRush home">
+            <img src="../BiteRushHomePage/HomePagePics/burger.png" alt="">
+            <span>BiteRush</span>
+        </a>
+        <a class="history-profile" href="../UserInfo/index.html" aria-label="User profile">
+            <img src="../BiteRushHomePage/HomePagePics/image%20108.png" alt="">
+        </a>
+    </header>
+
+    <main class="history-page">
+        <a class="history-back" href="../index.html" aria-label="Back to menu">
+            <span aria-hidden="true">&larr;</span> Back to menu
+        </a>
+        <section class="history-card" aria-labelledby="historyTitle">
+            <div class="history-heading">
+                <div>
+                    <p class="history-eyebrow">YOUR ORDERS</p>
+                    <h1 id="historyTitle">Order history</h1>
+                </div>
+                <span class="history-count" id="historyCount">Loading...</span>
+            </div>
+            <div id="historyMessage" class="history-message" role="status" hidden></div>
+            <div id="ordersList" class="orders-list" aria-live="polite">
+                <p class="history-empty">Loading your orders...</p>
+            </div>
+        </section>
+    </main>
+
+    <script src="../api.js?v=12"></script>
+    <script src="OrderHistory.js?v=1"></script>
+</body>
+</html>

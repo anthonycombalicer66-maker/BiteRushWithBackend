@@ -141,6 +141,7 @@
                 reviewsUrl.searchParams.set('v', '4');
                 reviewsUrl.searchParams.set('food', currentTitle);
                 reviewsUrl.searchParams.set('path', window.location.pathname);
+                reviewsUrl.searchParams.set('back', `${window.location.pathname}${window.location.search}`);
                 reviewsLink.href = reviewsUrl.href;
                 reviewsLink.querySelector('.product-reviews-name').textContent = currentTitle;
                 reviewsLink.setAttribute('aria-label', `See ratings and reviews for ${currentTitle}`);

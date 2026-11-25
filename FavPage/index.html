@@ -4,10 +4,10 @@
     <script src="../darkmode.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="FavPage.css">
+    <link rel="stylesheet" href="FavPage.css?v=2">
     <title>BiteRush - Favorites</title>
-    <link rel="stylesheet" href="../Cart/cart.css?v=9">
-    <link rel="stylesheet" href="../darkmode.css">
+    <link rel="stylesheet" href="../Cart/cart.css?v=12">
+    <link rel="stylesheet" href="../darkmode.css?v=2">
     <link rel="stylesheet" href="../BackButtons.css">
 </head>
 <body>
@@ -81,7 +81,7 @@
         </div>
     </main>
 
-    <script src="../api.js?v=7"></script>
+    <script src="../api.js?v=12"></script>
     <!-- Interactive Cart & Favorites Logic -->
     <script>
         // ---- Favorites Rendering ----
@@ -99,16 +99,6 @@
             } catch (error) {
                 console.error('Unable to save favorites on this device:', error);
                 return false;
-            }
-        }
-
-        function readLocalFavorites() {
-            try {
-                const cached = JSON.parse(localStorage.getItem(getFavoritesStorageKey()) || '[]');
-                return Array.isArray(cached) ? cached.filter(item => item && typeof item.title === 'string') : [];
-            } catch (error) {
-                console.error('Unable to read favorites on this device:', error);
-                return [];
             }
         }
 
@@ -258,32 +248,16 @@
             }
         }
 
+        let favoritesLoading = false;
         async function loadFavorites() {
+            if (favoritesLoading) return;
+            favoritesLoading = true;
             try {
                 const { user } = await window.BiteRushApi.request('me');
                 window.BiteRushApi.setAccountContext(user);
-                let result = await window.BiteRushApi.request('favorites');
+                const result = await window.BiteRushApi.request('favorites');
                 if (!Array.isArray(result.favorites)) {
                     throw new Error('The saved favorites response is invalid.');
-                }
-                if (result.favorites.length === 0) {
-                    const cachedFavorites = readLocalFavorites();
-                    if (cachedFavorites.length > 0) {
-                        await window.BiteRushApi.request('favorites', {
-                            method: 'PUT',
-                            body: {
-                                favorites: cachedFavorites.map(item => ({
-                                    title: item.title,
-                                    img: item.img || '',
-                                    path: item.link || item.path || ''
-                                }))
-                            }
-                        });
-                        result = await window.BiteRushApi.request('favorites');
-                        if (!Array.isArray(result.favorites)) {
-                            throw new Error('The saved favorites response is invalid.');
-                        }
-                    }
                 }
                 favorites = favoritesFromServer(result.favorites);
                 if (!saveLocalFavorites()) {
@@ -308,10 +282,19 @@
                 console.error('Unable to load saved favorites:', error);
                 favoritesGrid.textContent = `Favorites could not be loaded from your account: ${error.message}`;
                 return;
+            } finally {
+                favoritesLoading = false;
             }
         }
 
         loadFavorites();
+        const refreshFavorites = () => {
+            if (document.visibilityState !== 'hidden'
+                && localStorage.getItem('biterush_active_user_id')) loadFavorites();
+        };
+        window.addEventListener('focus', refreshFavorites);
+        document.addEventListener('visibilitychange', refreshFavorites);
+        window.setInterval(refreshFavorites, 20000);
     </script>
     <script>
         (() => {
@@ -367,6 +350,6 @@
                 if (event.key === 'Escape') searchButton.click();
             });
         })();
-    </script>    <script src="../Cart/cart.js?v=15"></script>
+    </script>    <script src="../Cart/cart.js?v=21"></script>
 </body>
 </html>

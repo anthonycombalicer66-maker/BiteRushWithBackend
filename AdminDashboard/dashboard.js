@@ -1236,6 +1236,10 @@
             const result = await window.BiteRushApi.request('admin-products');
             databaseProducts = result.products;
             const serverIds = new Set(databaseProducts.map(product => Number(product.id)));
+            Object.entries(overrides).forEach(([key, override]) => {
+                const id = Number(override && override.databaseId);
+                if (Number.isSafeInteger(id) && id > 0 && !serverIds.has(id)) delete overrides[key];
+            });
             customProducts = customProducts.filter(product => {
                 const id = Number(product.id);
                 return !Number.isSafeInteger(id) || id < 1 || serverIds.has(id)
@@ -1283,6 +1287,14 @@
                     customProducts[customIndex] = { ...customProducts[customIndex], ...databaseFields };
                 }
             });
+            for (const [key, product] of defaultProducts) {
+                const exists = databaseProducts.some(saved =>
+                    saved.sourceKey === product.sourceKey
+                    || normalizeTitle(saved.title) === key
+                    || (product.id && Number(saved.id) === Number(product.id))
+                );
+                if (!exists) defaultProducts.delete(key);
+            }
             removeDuplicateCustomProducts();
             let browserCacheError = null;
             try {
@@ -1296,7 +1308,6 @@
             if (browserCacheError) {
                 showProductMessage('Menu loaded from MySQL. Browser storage could not be updated; changes will be saved directly to the database.', 'warning');
             }
-            await persistProductCatalog();
             const undoAvailability = await window.BiteRushApi.request('product-undo');
             serverUndoAvailable = undoAvailability.available === true;
             updateUndoButton();
@@ -2433,6 +2444,7 @@
     });
 
     document.getElementById('addProductForm').addEventListener('submit', async event => {
+        const form = event.currentTarget;
         event.preventDefault();
         productMessage.hidden = true;
         productMessage.classList.remove('is-error', 'is-warning');
@@ -2545,8 +2557,12 @@
             updatedAt: new Date().toISOString(),
             updatedBy: identity.name || identity.username || 'Administrator'
         });
+        let previousProductsStorage = null;
+        let productsStorageCaptured = false;
         try {
             try {
+                previousProductsStorage = localStorage.getItem(customProductsKey);
+                productsStorageCaptured = true;
                 localStorage.setItem(customProductsKey, JSON.stringify(customProducts));
                 showProductMessage(`${title} is being saved to the menu database.`);
             } catch (error) {
@@ -2554,7 +2570,7 @@
                 console.error('Browser storage could not be updated; continuing with the database save:', error);
                 showProductMessage(`${title} is being saved directly to MySQL; browser storage could not be updated.`, 'warning');
             }
-            event.currentTarget.reset();
+            form.reset();
             document.getElementById('newProductAvailable').checked = true;
             document.getElementById('newProductFeatured').checked = true;
             renderProducts();
@@ -2564,6 +2580,14 @@
             customProducts.pop();
             console.error('Unable to add custom product:', error);
             showProductMessage(`The dish could not be saved: ${error.message}`, 'error');
+            if (productsStorageCaptured) {
+                try {
+                    if (previousProductsStorage === null) localStorage.removeItem(customProductsKey);
+                    else localStorage.setItem(customProductsKey, previousProductsStorage);
+                } catch (cleanupError) {
+                    console.error('Unable to roll back the failed product in browser storage:', cleanupError);
+                }
+            }
             try {
                 localStorage.removeItem(undoKey);
             } catch (cleanupError) {
@@ -2898,12 +2922,7 @@
                 renderSalesReport();
             }
             if (event.key === overridesKey || event.key === customProductsKey) {
-                overrides = readJSON(overridesKey, {});
-                customProducts = readJSON(customProductsKey, []);
-                renderProducts();
-                if (productCatalogReady && String(identity.role || '').toLocaleLowerCase() === 'admin') {
-                    persistProductCatalog();
-                }
+                loadProductCatalog().then(renderProducts);
             }
             renderFeedback();
         }
@@ -2917,4 +2936,42 @@
     renderProducts();
     loadFeedback().then(renderFeedback);
     renderAuditLog();
+    let databaseRefreshInProgress = false;
+    const refreshDashboardFromDatabase = async () => {
+        if (databaseRefreshInProgress || document.visibilityState === 'hidden') return;
+        databaseRefreshInProgress = true;
+        try {
+            const productDialog = document.getElementById('productEditDialog');
+            if (!productDialog?.open) {
+                await loadProductCatalog();
+                renderProducts();
+            }
+            const result = await window.BiteRushApi.request('admin-orders', { query: { all: 1 } });
+            if (!Array.isArray(result.orders)) throw new Error('The orders response is invalid.');
+            orders = result.orders;
+            knownOrderIds.clear();
+            orders.forEach(order => knownOrderIds.add(order.id));
+            localStorage.setItem(ordersKey, JSON.stringify(orders));
+            const currentReceipt = readJSON(receiptKey, null);
+            if (currentReceipt && typeof currentReceipt.id === 'string') {
+                const latestReceipt = orders.find(order => order.id === currentReceipt.id);
+                if (latestReceipt) localStorage.setItem(receiptKey, JSON.stringify(latestReceipt));
+                else localStorage.removeItem(receiptKey);
+            }
+            renderMetrics();
+            renderOrderList();
+            renderOrderDetail();
+            renderSalesReport();
+            await loadFeedback();
+            renderFeedback();
+            await loadAuditLog();
+        } catch (error) {
+            console.error('Unable to refresh the dashboard from the database:', error);
+        } finally {
+            databaseRefreshInProgress = false;
+        }
+    };
+    window.addEventListener('focus', refreshDashboardFromDatabase);
+    document.addEventListener('visibilitychange', refreshDashboardFromDatabase);
+    window.setInterval(refreshDashboardFromDatabase, 20000);
 }());

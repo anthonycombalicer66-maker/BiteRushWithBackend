@@ -15,6 +15,7 @@
     let authenticated = false;
     let ready = false;
     let syncQueue = Promise.resolve();
+    let loadingFavorites = false;
 
     const normalizeTitle = value => String(value || '').trim().toLocaleLowerCase();
 
@@ -121,41 +122,28 @@
     }
 
     async function loadServerFavorites() {
-        const { user } = await window.BiteRushApi.request('me');
-        window.BiteRushApi.setAccountContext(user);
-        let result = await window.BiteRushApi.request('favorites');
-        if (!Array.isArray(result.favorites)) {
-            throw new Error('The saved favorites response is invalid.');
-        }
-        if (result.favorites.length === 0) {
-            const localFavorites = readLocalFavorites();
-            if (localFavorites.length > 0) {
-                await window.BiteRushApi.request('favorites', {
-                    method: 'PUT',
-                    body: {
-                        favorites: localFavorites.map(item => ({
-                            title: item.title,
-                            img: item.img || '',
-                            path: item.link || item.path || ''
-                        }))
-                    }
-                });
-                result = await window.BiteRushApi.request('favorites');
-                if (!Array.isArray(result.favorites)) {
-                    throw new Error('The saved favorites response is invalid.');
-                }
+        if (loadingFavorites) return;
+        loadingFavorites = true;
+        try {
+            const { user } = await window.BiteRushApi.request('me');
+            window.BiteRushApi.setAccountContext(user);
+            const result = await window.BiteRushApi.request('favorites');
+            if (!Array.isArray(result.favorites)) {
+                throw new Error('The saved favorites response is invalid.');
             }
+            serverFavorites = result.favorites.map(favoriteFromServer);
+            authenticated = true;
+            if (!writeFavorites(serverFavorites)) {
+                showStatus('Favorites loaded, but this browser could not update its local display cache.');
+            } else {
+                showStatus('');
+            }
+            updateButtons(serverFavorites);
+            ready = true;
+            buttons().forEach(button => { button.disabled = false; });
+        } finally {
+            loadingFavorites = false;
         }
-        serverFavorites = result.favorites.map(favoriteFromServer);
-        authenticated = true;
-        if (!writeFavorites(serverFavorites)) {
-            showStatus('Favorites loaded, but this browser could not update its local display cache.');
-        } else {
-            showStatus('');
-        }
-        updateButtons(serverFavorites);
-        ready = true;
-        buttons().forEach(button => { button.disabled = false; });
     }
 
     async function initialize() {
@@ -234,4 +222,13 @@
     });
 
     initialize();
+    const refreshVisibleFavorites = () => {
+        if (!authenticated || document.visibilityState === 'hidden') return;
+        loadServerFavorites().catch(error => {
+            console.error('Unable to refresh favorites from the database:', error);
+        });
+    };
+    window.addEventListener('focus', refreshVisibleFavorites);
+    document.addEventListener('visibilitychange', refreshVisibleFavorites);
+    window.setInterval(refreshVisibleFavorites, 20000);
 }());

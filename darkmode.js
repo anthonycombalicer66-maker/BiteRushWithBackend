@@ -37,7 +37,8 @@
             const savedImage = localStorage.getItem(profileImageKey);
             const profileImage = resolveProfileImage(savedImage || defaultProfileImage);
             const avatars = document.querySelectorAll(
-                'img[data-biterush-profile-avatar], img[alt="Big User Profile"], img[alt="User Profile"], img[alt*="User Profile"]'
+                'img[data-biterush-profile-avatar], img[alt="Big User Profile"], img[alt="User Profile"], img[alt*="User Profile"], '
+                + 'a[href*="UserInfo"] img, .history-profile img, .profile-link img, .user-profile img'
             );
 
             avatars.forEach(img => {
